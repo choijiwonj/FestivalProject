@@ -1,0 +1,163 @@
+import os
+from datetime import date, datetime
+
+from dotenv import load_dotenv
+from sqlalchemy import JSON, Float, ForeignKey, String, Text, UniqueConstraint, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+
+load_dotenv()
+
+# 개발 기본값은 SQLite, 배포는 Supabase PostgreSQL URL을 DATABASE_URL로 넣는다.
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+)
+SessionLocal = sessionmaker(engine, expire_on_commit=False)
+
+
+def get_db():
+    with SessionLocal() as db:
+        yield db
+
+
+# ponytail: JSON 컬럼(Postgres JSON). 검색이 필요해지면 JSONB + 인덱스로 바꾼다.
+class Base(DeclarativeBase):
+    type_annotation_map = {dict: JSON, list: JSON}
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("provider", "provider_user_id"),)
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    provider_user_id: Mapped[str] = mapped_column(String(100))
+    nickname: Mapped[str] = mapped_column(String(20))
+    avatar_url: Mapped[str | None]
+    email: Mapped[str | None]
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
+    created_at: Mapped[datetime]
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # 쿠키 토큰의 sha256
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    csrf_token: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+    user: Mapped[User] = relationship(lazy="joined")
+
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    version: Mapped[int] = mapped_column()
+    origin: Mapped[dict | None]
+    transport: Mapped[str | None]
+    travelers: Mapped[int | None]
+    interests: Mapped[list] = mapped_column(default=list)
+    style: Mapped[str | None]
+    lodging_preference: Mapped[str | None]
+    save_origin: Mapped[bool] = mapped_column(default=False)
+    updated_at: Mapped[datetime | None]
+    # 저장 시 version 비교 + 증가를 한 UPDATE로 처리 (동시 수정 → StaleDataError → 409)
+    __mapper_args__ = {"version_id_col": version}
+
+
+class Festival(Base):
+    __tablename__ = "festivals"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str]
+    region: Mapped[str] = mapped_column(String(20))
+    start_date: Mapped[date]
+    end_date: Mapped[date]
+    status: Mapped[str] = mapped_column(String(20), default="SCHEDULED")
+    thumbnail_url: Mapped[str | None]
+    tags: Mapped[list] = mapped_column(default=list)
+    description: Mapped[str] = mapped_column(Text, default="")
+    venue: Mapped[dict | None]  # {label,lat,lng}
+    opening_hours: Mapped[str | None]
+    admission: Mapped[dict | None]  # {amountKrw,basis}
+    booths: Mapped[list] = mapped_column(default=list)
+    lineup: Mapped[list] = mapped_column(default=list)
+    shuttle: Mapped[dict | None]
+    directions: Mapped[dict | None]
+    editorial: Mapped[bool] = mapped_column(default=False)
+    source_url: Mapped[str | None]
+    last_verified_at: Mapped[datetime | None]
+
+
+class Program(Base):
+    __tablename__ = "festival_programs"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    festival_id: Mapped[str] = mapped_column(ForeignKey("festivals.id"))
+    name: Mapped[str]
+    start_at: Mapped[datetime | None]  # UTC로 저장
+    end_at: Mapped[datetime | None]
+    reservation_required: Mapped[bool | None]
+    cost_krw: Mapped[int | None]
+    source_url: Mapped[str | None]
+    last_verified_at: Mapped[datetime | None]
+
+
+class Place(Base):
+    __tablename__ = "places"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str]
+    category: Mapped[str] = mapped_column(String(20))
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    address: Mapped[str]
+    thumbnail_url: Mapped[str | None]
+    description: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[list] = mapped_column(default=list)
+    opening_hours: Mapped[dict | None]
+    closed_dates: Mapped[list] = mapped_column(default=list)
+    price: Mapped[dict | None]
+    stay_minutes_estimate: Mapped[int | None]
+    source_url: Mapped[str | None]
+    last_verified_at: Mapped[datetime | None]
+
+
+class TripRequest(Base):
+    __tablename__ = "trip_requests"
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key"),)
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    input: Mapped[dict]  # 검증·정규화된 입력
+    idempotency_key: Mapped[str] = mapped_column(String(36))
+    body_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime]
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    request_id: Mapped[str | None] = mapped_column(ForeignKey("trip_requests.id"))
+    type: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20))
+    stage: Mapped[str] = mapped_column(String(20))
+    result: Mapped[dict | None]
+    error: Mapped[dict | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class TripPlan(Base):
+    __tablename__ = "trip_plans"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    request_id: Mapped[str] = mapped_column(ForeignKey("trip_requests.id"))
+    parent_plan_id: Mapped[str | None]
+    version: Mapped[int] = mapped_column(default=1)
+    title: Mapped[str]
+    status: Mapped[str] = mapped_column(String(20))
+    input_snapshot: Mapped[dict]
+    days: Mapped[list]
+    budget: Mapped[dict]
+    warnings: Mapped[list]
+    conflicts: Mapped[list]
+    is_favorite: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime]

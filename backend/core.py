@@ -1,0 +1,154 @@
+"""공통 규약: 응답 봉투, 오류, 페이지, 세션·CSRF, 서명된 위치 ID."""
+import base64
+import hashlib
+import hmac
+import json
+import math
+import os
+import secrets
+import uuid
+from contextvars import ContextVar
+from datetime import datetime, timedelta, timezone
+
+from fastapi import Depends, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session as DB
+
+from db import Session, User, get_db
+
+KST = timezone(timedelta(hours=9))  # 한국은 서머타임이 없어 고정 오프셋으로 충분
+# ponytail: 미설정 시 프로세스별 임시 키 → 재시작/인스턴스 간 위치 ID가 무효화(안전한 쪽으로 실패). 배포 땐 SECRET_KEY 필수.
+SECRET_KEY = (os.getenv("SECRET_KEY") or secrets.token_hex(32)).encode()
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1") == "1"
+DEV_LOGIN = os.getenv("DEV_LOGIN") == "1"
+KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "")
+KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "")
+KAKAO_REDIRECT_URI = os.getenv("KAKAO_REDIRECT_URI", "http://localhost:3000/api/v1/auth/callback/kakao")
+SESSION_COOKIE = "sid"
+SESSION_DAYS = 30
+
+request_id_var: ContextVar[str] = ContextVar("request_id", default="req_unknown")
+
+
+def new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:16]}"
+
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def aware(dt: datetime | None) -> datetime | None:
+    """SQLite는 tz를 버리므로 naive 값은 UTC로 간주한다."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def iso(dt: datetime | None) -> str | None:
+    return aware(dt).astimezone(KST).isoformat() if dt else None
+
+
+# ---- 응답 ----
+
+class ApiError(Exception):
+    def __init__(self, status: int, code: str, message: str, fields: list | None = None, retryable: bool = False):
+        self.status, self.code, self.message, self.fields, self.retryable = status, code, message, fields or [], retryable
+
+
+def field(path: str, reason: str) -> list:
+    return [{"path": path, "reason": reason}]
+
+
+def meta(**extra) -> dict:
+    return {"requestId": request_id_var.get(), **extra}
+
+
+def ok(data, status: int = 200, page: dict | None = None, **extra) -> JSONResponse:
+    body = {"data": data}
+    if page is not None:
+        body["page"] = page
+    body["meta"] = meta(**extra)
+    return JSONResponse(jsonable_encoder(body), status_code=status)
+
+
+def error_response(e: ApiError) -> JSONResponse:
+    body = {"error": {"code": e.code, "message": e.message, "fields": e.fields, "retryable": e.retryable}, "meta": meta()}
+    return JSONResponse(body, status_code=e.status)
+
+
+# ponytail: offset 커서. 목록이 커지고 정렬 중 삽입이 잦아지면 (정렬값,id) keyset 커서로 바꾼다.
+def paginate(items: list, cursor: str | None, limit: int) -> tuple[list, dict]:
+    try:
+        start = int(base64.urlsafe_b64decode(cursor.encode()).decode()) if cursor else 0
+    except ValueError:
+        raise ApiError(400, "INVALID_CURSOR", "잘못된 페이지 정보입니다.", field("cursor", "invalid"))
+    end = start + limit
+    has_next = end < len(items)
+    nxt = base64.urlsafe_b64encode(str(end).encode()).decode() if has_next else None
+    return items[start:end], {"nextCursor": nxt, "hasNext": has_next}
+
+
+def distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lng2 - lng1) / 2) ** 2
+    return 6371000 * 2 * math.asin(math.sqrt(a))
+
+
+# ---- 세션 ----
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def current_session(request: Request, db: DB) -> Session | None:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    s = db.get(Session, hash_token(token))
+    if not s or aware(s.expires_at) < now() or s.user.status != "ACTIVE":
+        return None
+    return s
+
+
+def create_session(db: DB, user: User) -> str:
+    token = secrets.token_urlsafe(32)
+    db.add(Session(id=hash_token(token), user_id=user.id, csrf_token=secrets.token_urlsafe(32),
+                   created_at=now(), expires_at=now() + timedelta(days=SESSION_DAYS)))
+    db.commit()
+    return token
+
+
+def check_csrf(request: Request, s: Session) -> None:
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    if not hmac.compare_digest(request.headers.get("X-CSRF-Token", ""), s.csrf_token):
+        raise ApiError(403, "CSRF_INVALID", "요청을 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.")
+
+
+def require_user(request: Request, db: DB = Depends(get_db)) -> User:
+    s = current_session(request, db)
+    if not s:
+        raise ApiError(401, "UNAUTHENTICATED", "로그인이 필요합니다.")
+    check_csrf(request, s)
+    return s.user
+
+
+# ---- 위치 ID: 서버가 검색 결과에 서명 → 클라이언트가 임의 좌표를 만들 수 없음 ----
+
+def sign_location(label: str, lat: float, lng: float) -> str:
+    payload = base64.urlsafe_b64encode(json.dumps([label, lat, lng], ensure_ascii=False).encode()).decode()
+    sig = hmac.new(SECRET_KEY, payload.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"loc_{payload}.{sig}"
+
+
+def verify_location(location_id: str | None) -> dict | None:
+    if not location_id or not location_id.startswith("loc_") or "." not in location_id:
+        return None
+    payload, sig = location_id[4:].rsplit(".", 1)
+    expected = hmac.new(SECRET_KEY, payload.encode(), hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(sig, expected):
+        return None
+    label, lat, lng = json.loads(base64.urlsafe_b64decode(payload.encode()))
+    return {"locationId": location_id, "label": label, "lat": lat, "lng": lng}
