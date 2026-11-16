@@ -178,7 +178,9 @@ function ListContent({ query }: { query: string }) {
           ·{" "}
           {result.loading
             ? "찾는 중…"
-            : `${result.data?.data.length ?? 0}개 표시`}
+            : result.error
+              ? "목록을 불러오지 못했어요"
+              : `${result.data?.data.length ?? 0}개 표시`}
         </p>
         <button onClick={reset} type="button">
           초기화

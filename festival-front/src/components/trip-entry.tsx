@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { festivalRepository } from "@/lib/repository";
 import { useResource } from "@/lib/use-resource";
-import { Loading, ErrorState, Notice } from "./ui";
+import { Loading, ApiErrorState, Notice } from "./ui";
 export function TripEntry({ festivalId }: { festivalId?: string }) {
   if (!festivalId)
     return (
@@ -27,7 +27,7 @@ function SelectedFestival({ id }: { id: string }) {
   if (result.error)
     return (
       <>
-        <ErrorState message={result.error.message} retry={result.retry} />
+        <ApiErrorState error={result.error} retry={result.retry} />
         <Link href="/festivals" className="text-link">
           축제 다시 선택하기
         </Link>

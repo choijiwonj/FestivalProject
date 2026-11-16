@@ -38,7 +38,12 @@ function Library({ kind }: { kind: "plans" | "reviews" }) {
   if (result.loading) return <Loading />;
   if (result.error instanceof ApiError && result.error.status === 401)
     return <LoginPrompt returnTo={`/my/${kind}`} />;
-  if (result.error instanceof ApiError && result.error.status === 404)
+  // 백엔드에 아직 없는 경로(code NOT_FOUND)만 '준비 중'. 프록시 오류 등 다른 404는 오류로 보여준다.
+  if (
+    result.error instanceof ApiError &&
+    result.error.status === 404 &&
+    result.error.code === "NOT_FOUND"
+  )
     return (
       <>
         <h1 className="page-title">

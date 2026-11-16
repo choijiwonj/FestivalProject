@@ -24,12 +24,14 @@ export function MyDashboard({
   const [editing, setEditing] = useState(false);
   const [nickname, setNickname] = useState("");
   const [message, setMessage] = useState("");
+  const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const user = session?.user;
   async function save(e: FormEvent) {
     e.preventDefault();
     const issue = nicknameError(nickname);
     if (issue) {
+      setFailed(true);
       setMessage(issue);
       return;
     }
@@ -42,8 +44,10 @@ export function MyDashboard({
       );
       setUser(response.data);
       setEditing(false);
+      setFailed(false);
       setMessage("닉네임을 변경했어요.");
     } catch (e) {
+      setFailed(true);
       setMessage(
         e instanceof Error
           ? e.message
@@ -149,7 +153,10 @@ export function MyDashboard({
         </form>
       )}
       {message && (
-        <p className="account-feedback" role="status">
+        <p
+          className={failed ? "field-error mt-4" : "account-feedback"}
+          role={failed ? "alert" : "status"}
+        >
           {message}
         </p>
       )}

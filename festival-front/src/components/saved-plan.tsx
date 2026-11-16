@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import { accountApi } from "@/lib/api/account";
 import { useResource } from "@/lib/use-resource";
 import { RequireAuth } from "./require-auth";
-import { Loading, ErrorState, Notice } from "./ui";
+import { Loading, ApiErrorState, Notice } from "./ui";
 import { planStatus } from "./private-library";
 export function SavedPlan({ id }: { id: string }) {
   return (
@@ -18,7 +18,7 @@ function PlanContent({ id }: { id: string }) {
   );
   if (result.loading) return <Loading />;
   if (result.error)
-    return <ErrorState message={result.error.message} retry={result.retry} />;
+    return <ApiErrorState error={result.error} retry={result.retry} />;
   const plan = result.data!.data;
   return (
     <>
@@ -69,7 +69,12 @@ function PlanContent({ id }: { id: string }) {
       ))}
       <section className="section info-card">
         <h2>확인된 총비용</h2>
-        <p>{plan.budget.knownTotalKrw.toLocaleString("ko-KR")}원</p>
+        <p>
+          {/* 확인된 비용이 없는데 미확인 항목이 있으면 0원이 아니라 미확인 (B05) */}
+          {plan.budget.knownTotalKrw === 0 && plan.budget.unknownItemCount > 0
+            ? "미확인"
+            : `${plan.budget.knownTotalKrw.toLocaleString("ko-KR")}원`}
+        </p>
         <p className="muted mt-2">
           미확인 비용 {plan.budget.unknownItemCount}건 · 추가 비용이 발생할 수
           있어요.

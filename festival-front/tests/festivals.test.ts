@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { validateFilters } from "../src/lib/validation";
 import { toQuery, apiRepository } from "../src/lib/api/festivals";
 import { festivalRepository } from "../src/lib/repository";
-import { apiGet, ApiError } from "../src/lib/api/client";
+import { apiGet, apiRequest, ApiError } from "../src/lib/api/client";
 
 test("검색 길이·역전 날짜·존재하지 않는 날짜·잘못된 지역 검증", () => {
   assert.ok(validateFilters({ q: "가".repeat(101) }));
@@ -76,6 +76,27 @@ test("서버 오류의 코드·필드·requestId를 유지한다", async () => {
         e.code === "INVALID_DATE" &&
         e.fields[0].path === "from" &&
         e.requestId === "req_test",
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test("JSON이 아닌 오류·성공 응답과 CSRF 누락을 API 오류로 바꾼다", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response("<html>bad gateway</html>", { status: 503 });
+    await assert.rejects(
+      apiGet("/festivals"),
+      (e: unknown) => e instanceof ApiError && e.status === 503 && e.retryable && e.message.includes("서버"),
+    );
+    globalThis.fetch = async () => new Response("<html>ok</html>", { status: 200 });
+    await assert.rejects(
+      apiGet("/festivals"),
+      (e: unknown) => e instanceof ApiError && e.code === "BAD_RESPONSE",
+    );
+    await assert.rejects(
+      apiRequest("/me", { method: "PATCH", json: {}, csrfToken: null }),
+      (e: unknown) => e instanceof ApiError && e.code === "CSRF_MISSING",
     );
   } finally {
     globalThis.fetch = original;

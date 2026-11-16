@@ -5,7 +5,7 @@ import Image from "next/image";
 import { festivalRepository } from "@/lib/repository";
 import { regions, type Source } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
-import { Loading, ErrorState, Notice } from "./ui";
+import { Loading, ErrorState, ApiErrorState, Notice } from "./ui";
 function SourceInfo({ source }: { source: Source }) {
   const safeUrl = source.sourceUrl?.startsWith("https://")
     ? source.sourceUrl
@@ -47,7 +47,7 @@ export function FestivalDetailView({ id }: { id: string }) {
   if (result.error)
     return (
       <>
-        <ErrorState message={result.error.message} retry={result.retry} />
+        <ApiErrorState error={result.error} retry={result.retry} />
         <Link href="/festivals" className="text-link">
           전체 축제로 돌아가기
         </Link>

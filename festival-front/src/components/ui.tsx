@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SearchX, CircleAlert, ChevronRight } from "lucide-react";
 import { regions, type FestivalSummary } from "@/lib/types";
+import { ApiError } from "@/lib/api/client";
 export function SectionHeading({
   title,
   href,
@@ -53,20 +54,39 @@ export function Loading() {
 export function ErrorState({
   message,
   retry,
+  title = "잠시 쉬어 가는 중이에요",
 }: {
   message: string;
-  retry: () => void;
+  retry?: () => void;
+  title?: string;
 }) {
   return (
     <div role="alert" className="state-card">
       <CircleAlert aria-hidden="true" />
-      <h2>잠시 쉬어 가는 중이에요</h2>
+      <h2>{title}</h2>
       <p>{message}</p>
-      <button type="button" className="button secondary" onClick={retry}>
-        다시 시도
-      </button>
+      {retry && (
+        <button type="button" className="button secondary" onClick={retry}>
+          다시 시도
+        </button>
+      )}
     </div>
   );
+}
+/** 403·404는 다시 시도해도 같으므로 재시도 버튼 없이 안내한다. */
+export function ApiErrorState({
+  error,
+  retry,
+}: {
+  error: Error;
+  retry: () => void;
+}) {
+  const status = error instanceof ApiError ? error.status : 0;
+  if (status === 403)
+    return <ErrorState title="볼 수 없는 정보예요" message="이 정보에 접근할 권한이 없어요." />;
+  if (status === 404)
+    return <ErrorState title="찾을 수 없어요" message="삭제되었거나 주소가 잘못되었어요." />;
+  return <ErrorState message={error.message} retry={retry} />;
 }
 export function EmptyState({ reset }: { reset?: () => void }) {
   return (
