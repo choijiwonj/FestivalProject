@@ -26,8 +26,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<Error | null>(null);
   const [attempt, setAttempt] = useState(0);
   const sequence = useRef(0);
-  // 세션을 한 번이라도 받았는지. 받은 뒤의 재확인(창 focus)은 화면을 언마운트하지 않는다.
-  const loaded = useRef(false);
   const reload = useCallback(() => setAttempt((a) => a + 1), []);
   const clear = useCallback(() => {
     sequence.current++;
@@ -44,24 +42,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController();
     let active = true;
     const current = ++sequence.current;
-    if (!loaded.current) {
-      setLoading(true);
-      setError(null);
-    }
+    setLoading(true);
+    setError(null);
     accountApi.session(controller.signal).then(
       (r) => {
         if (active && sequence.current === current) {
-          loaded.current = true;
           setSession(r.data);
-          setError(null);
           setLoading(false);
         }
       },
       (e) => {
         if (active && sequence.current === current && e.name !== "AbortError") {
-          // 재확인이 네트워크·5xx로 실패하면 기존 세션을 유지한다.
-          // 실제 만료(401)는 client.ts가 AUTH_EXPIRED_EVENT → clear()로 따로 처리한다.
-          if (loaded.current) return;
           setSession(null);
           setError(e);
           setLoading(false);
