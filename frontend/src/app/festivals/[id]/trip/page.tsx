@@ -26,6 +26,12 @@ function definedOnly(f: Form): Form {
   return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined)) as Form;
 }
 
+// validate_trip과 같은 규칙: 시작·종료 시각이 확정되고, 시작일(KST, startAt 앞 10자)이 여행 날짜 안이어야 고를 수 있다.
+function pickable(p: Program, f: Form) {
+  const day = p.startAt?.slice(0, 10);
+  return !!(day && p.endAt && f.startDate && f.endDate && day >= f.startDate && day <= f.endDate);
+}
+
 export default function TripPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -56,12 +62,20 @@ export default function TripPage() {
           }),
           ...definedOnly(f),
         })),
-      () => {}, // 기본값을 못 불러와도 입력은 계속할 수 있다
+      (e) => console.warn("기본값을 불러오지 못했어요", e), // 기본값을 못 불러와도 입력은 계속할 수 있다
     );
   }, [loggedIn]);
 
   function update(patch: Form) {
-    setForm((f) => ({ ...f, ...patch }));
+    setForm((f) => {
+      const next = { ...f, ...patch };
+      // 날짜가 바뀌어 범위를 벗어난 필수 프로그램은 선택에서 뺀다
+      if (next.requiredProgramIds && programs.data) {
+        next.requiredProgramIds = next.requiredProgramIds.filter((pid) =>
+          programs.data!.some((p) => p.id === pid && pickable(p, next)));
+      }
+      return next;
+    });
     setChecked(null);
     idemKey.current = null; // 조건이 바뀌면 새 요청 키
   }
@@ -116,6 +130,7 @@ export default function TripPage() {
     });
 
   if (session === null || fest.loading) return <Loading />;
+  if (session.error) return <ErrorBox error={session.error} onRetry={() => location.reload()} />;
   if (!session.user) {
     return (
       <div className="space-y-3 py-6 text-center">
@@ -142,7 +157,10 @@ export default function TripPage() {
             <label className="text-sm">
               시작일
               <input type="date" min={f.dateSelection.min} max={f.dateSelection.max} value={form.startDate ?? ""}
-                onChange={(e) => update({ startDate: e.target.value })} className={input} />
+                onChange={(e) => {
+                  const startDate = e.target.value;
+                  update({ startDate, endDate: form.endDate && form.endDate < startDate ? undefined : form.endDate });
+                }} className={input} />
             </label>
             <label className="text-sm">
               종료일
@@ -171,8 +189,8 @@ export default function TripPage() {
           <div className="grid grid-cols-2 gap-2">
             <label className="text-sm">
               인원
-              <input type="number" min={1} max={20} value={form.travelers ?? 1}
-                onChange={(e) => update({ travelers: Number(e.target.value) })} className={input} />
+              <input type="number" min={1} max={20} placeholder="1" value={form.travelers ?? ""}
+                onChange={(e) => update({ travelers: e.target.value === "" ? undefined : Number(e.target.value) })} className={input} />
             </label>
             <label className="text-sm">
               총 예산(원, 비우면 미입력)
@@ -216,7 +234,8 @@ export default function TripPage() {
           )}
           <fieldset>
             <legend className="mb-1 text-sm font-semibold">꼭 볼 프로그램</legend>
-            {programs.data?.filter((p) => p.startAt).map((p) => {
+            {programs.error && <ErrorBox error={programs.error} />}
+            {programs.data?.filter((p) => pickable(p, form)).map((p) => {
               const on = form.requiredProgramIds?.includes(p.id) ?? false;
               return (
                 <label key={p.id} className="flex items-center gap-2 text-sm">

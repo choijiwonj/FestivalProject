@@ -1,6 +1,7 @@
 """여행 조건 검증·생성·작업 조회·계획 조회 (G04·G05)."""
 import hashlib
 import uuid
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
@@ -8,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DB
 
-from core import ApiError, iso, new_id, now, ok, paginate, require_user
+from core import ApiError, aware, iso, new_id, now, ok, paginate, require_user
 from db import Festival, Job, TripPlan, TripRequest, User, get_db
 from planner import TripRequestInput, run_generation, validate_trip
 
@@ -67,7 +68,9 @@ def create_trip(body: TripRequestInput, background: BackgroundTasks,
         db.commit()
     except IntegrityError:  # 동시 중복 클릭: 먼저 들어간 요청을 돌려준다
         db.rollback()
-        return replay()
+        if resp := replay():
+            return resp
+        raise ApiError(409, "IDEMPOTENCY_CONFLICT", "요청이 다른 요청과 충돌했습니다. 다시 시도해 주세요.", retryable=True)
     background.add_task(run_generation, job.id)
     return accepted(req, job)
 
@@ -77,8 +80,15 @@ def get_job(job_id: str, user: User = Depends(require_user), db: DB = Depends(ge
     j = db.get(Job, job_id)
     if not j or j.user_id != user.id:  # 타인 리소스도 404
         raise ApiError(404, "JOB_NOT_FOUND", "작업을 찾을 수 없습니다.")
+    # 재시작으로 멈춘 작업은 읽을 때 실패로 정리한다
+    if j.status in ("QUEUED", "RUNNING") and aware(j.updated_at) < now() - timedelta(minutes=10):
+        j.status, j.updated_at = "FAILED", now()
+        j.error = {"code": "GENERATION_TIMEOUT", "message": "계획을 만드는 데 너무 오래 걸렸어요. 다시 시도해 주세요.",
+                   "retryable": True}
+        db.commit()
     extra = {} if j.status in ("SUCCEEDED", "FAILED") else {"pollAfterSeconds": 3}
-    return ok(job_out(j), **extra)
+    req = db.get(TripRequest, j.request_id) if j.request_id else None
+    return ok({**job_out(j), "festivalId": req.input.get("primaryFestivalId") if req else None}, **extra)
 
 
 @router.get("/trip-plans/{plan_id}")

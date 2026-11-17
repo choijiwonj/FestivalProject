@@ -22,7 +22,13 @@ export type SessionInfo = { user: { id: string; nickname: string; avatarUrl: str
 let sessionPromise: Promise<SessionInfo> | null = null;
 
 export function getSession(): Promise<SessionInfo> {
-  sessionPromise ??= api<SessionInfo>("/auth/session").then((r) => r.data);
+  sessionPromise ??= api<SessionInfo>("/auth/session").then(
+    (r) => r.data,
+    (e) => {
+      sessionPromise = null; // 실패는 캐시하지 않는다: 다음 호출이 다시 확인
+      throw e;
+    },
+  );
   return sessionPromise;
 }
 
@@ -95,20 +101,20 @@ export function useApi<T>(path: string | null) {
 }
 
 export function useSession() {
-  const [session, setSession] = useState<SessionInfo | null>(null);
+  const [session, setSession] = useState<(SessionInfo & { error?: ApiFailure }) | null>(null);
   useEffect(() => {
     let alive = true;
     getSession().then(
       (s) => {
         if (alive) setSession(s);
       },
-      () => {
-        if (alive) setSession({ user: null, csrfToken: null });
+      (e) => {
+        if (alive) setSession({ user: null, csrfToken: null, error: toFailure(e) });
       },
     );
     return () => {
       alive = false;
     };
   }, []);
-  return session; // null = 확인 중
+  return session; // null = 확인 중, error = 확인 실패(로그아웃 상태 아님)
 }

@@ -1,7 +1,8 @@
 import os
 import tempfile
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 
 os.environ.update(DATABASE_URL=f"sqlite:///{tempfile.mkdtemp()}/test.db", DEV_LOGIN="1", SEED_DEMO="1",
                   SECRET_KEY="test-secret")
@@ -12,7 +13,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from core import create_session, sign_location  # noqa: E402
 from db import SessionLocal  # noqa: E402
 from main import app  # noqa: E402
-from planner import check_dates  # noqa: E402
+import planner  # noqa: E402
+from planner import check_dates, find_conflicts  # noqa: E402
 from routers.auth import upsert_user  # noqa: E402
 
 START = date.today() + timedelta(days=10)  # seed 축제: START ~ START+2
@@ -43,6 +45,22 @@ def test_check_dates_b02():
     assert check_dates(date(2027, 5, 11), date(2027, 5, 12), fs, fe) == "DATE_OUT_OF_FESTIVAL_WINDOW"
     assert check_dates(date(2027, 5, 15), date(2027, 5, 14), fs, fe) == "DATE_RANGE_INVALID"
     assert check_dates(date(2027, 5, 14), date(2027, 5, 16), fs, fe) == "TRIP_DURATION_EXCEEDED"
+
+
+def test_conflicts_all_pairs():
+    def p(id_, s, e):
+        return SimpleNamespace(id=id_, name=id_, start_at=datetime(2027, 5, 14, s), end_at=datetime(2027, 5, 14, e))
+    pairs = [c["relatedProgramIds"] for c in find_conflicts([p("A", 13, 18), p("B", 14, 15), p("C", 16, 17)])]
+    assert pairs == [["A", "B"], ["A", "C"]]  # 인접하지 않은 A–C도 잡는다
+
+
+def test_generation_failure_marks_job_failed(client, monkeypatch):
+    def boom(*a):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(planner, "build_plan", boom)
+    r = client.post("/api/v1/trip-requests", json=trip(budgetKrw=1), headers={"Idempotency-Key": str(uuid.uuid4())})
+    job = client.get(f"/api/v1/jobs/{r.json()['data']['jobId']}").json()["data"]
+    assert job["status"] == "FAILED" and job["error"]["code"] == "GENERATION_FAILED", job
 
 
 def test_public_and_auth_basics(client):

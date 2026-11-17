@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, loginUrl, resetSession, useApi, useSession } from "@/lib/api";
+import { ApiFailure, api, loginUrl, resetSession, toFailure, useApi, useSession } from "@/lib/api";
 import { PLAN_STATUS, STAGES } from "@/lib/labels";
 import type { PlanSummary } from "@/lib/types";
 import { ErrorBox, Loading, button } from "../ui";
@@ -19,6 +19,7 @@ export default function MePage() {
   const active = useApi<RequestSummary[]>(user ? "/me/trip-requests?status=ACTIVE" : null);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [loginFailed, setLoginFailed] = useState(false);
+  const [logoutError, setLogoutError] = useState<ApiFailure | null>(null);
 
   useEffect(() => {
     // 로그인 실패 콜백은 /me?login=failed 로 돌아온다
@@ -27,12 +28,18 @@ export default function MePage() {
   }, []);
 
   async function logout() {
-    await api("/auth/logout", { method: "POST" }).catch(() => {});
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch (e) {
+      setLogoutError(toFailure(e)); // 실패하면 페이지에 남는다
+      return;
+    }
     resetSession(); // 개인 캐시 제거
     router.replace("/");
   }
 
   if (session === null) return <Loading />;
+  if (session.error) return <ErrorBox error={session.error} onRetry={() => window.location.reload()} />;
   if (!user) {
     return (
       <div className="space-y-3 py-6 text-center">
@@ -47,6 +54,7 @@ export default function MePage() {
     <div className="space-y-6">
       <h1 className="text-xl font-bold">{user.nickname}님</h1>
 
+      {active.error && <ErrorBox error={active.error} />}
       {active.data && active.data.length > 0 && (
         <section className="space-y-2">
           <h2 className="font-semibold">만드는 중인 계획</h2>
@@ -74,6 +82,7 @@ export default function MePage() {
       {confirmLogout ? (
         <div className="space-y-2 rounded-lg border border-black/15 p-3">
           <p>로그아웃할까요? 저장된 계획은 그대로 남아요.</p>
+          {logoutError && <ErrorBox error={logoutError} />}
           <div className="flex gap-2">
             <button onClick={() => setConfirmLogout(false)} className="rounded-lg border border-black/20 px-4 py-2">취소</button>
             <button onClick={logout} className={`${button} flex-1`}>로그아웃</button>

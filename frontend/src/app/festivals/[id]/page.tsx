@@ -44,6 +44,7 @@ export default function FestivalPage() {
       <section className="space-y-2">
         <h2 className="font-semibold">프로그램</h2>
         {programs.loading && <Loading />}
+        {programs.error && <ErrorBox error={programs.error} />}
         {programs.data?.length === 0 && <p className="text-sm opacity-60">등록된 프로그램이 없어요.</p>}
         <ul className="space-y-1 text-sm">
           {programs.data?.map((p) => (

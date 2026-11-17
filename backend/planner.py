@@ -5,6 +5,7 @@
 """
 import logging
 from datetime import date, timedelta
+from itertools import combinations
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -156,11 +157,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
         days[0]["stops"].append(stop(type="PLACE", placeId=pl.id, name=pl.name, recommendationReason="필수 장소",
                                      sourceUrl=pl.source_url))
 
-    conflicts = []
-    for a, b in zip(programs, programs[1:]):
-        if b.start_at < a.end_at:
-            conflicts.append({"code": "REQUIRED_CONSTRAINT_CONFLICT", "message": f"'{a.name}'과 '{b.name}'의 시간이 겹칩니다.",
-                              "relatedPlaceIds": [], "relatedProgramIds": [a.id, b.id], "suggestedChanges": []})
+    conflicts = find_conflicts(programs)
 
     warnings = [
         {"code": "ROUTE_UNAVAILABLE", "message": "경로 서비스가 아직 연결되지 않아 이동시간을 계산하지 않았습니다.", "stopIds": []},
@@ -180,6 +177,13 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
         # 경로·운영시간 검증 전이므로 READY가 될 수 없다.
         status="INFEASIBLE" if conflicts else "NEEDS_REVIEW",
         input_snapshot=inp, days=days, budget=budget, warnings=warnings, conflicts=conflicts, created_at=now())
+
+
+def find_conflicts(programs: list) -> list:
+    """시작순 정렬된 프로그램의 모든 쌍을 비교한다(최대 10개라 O(n²)로 충분)."""
+    return [{"code": "REQUIRED_CONSTRAINT_CONFLICT", "message": f"'{a.name}'과 '{b.name}'의 시간이 겹칩니다.",
+             "relatedPlaceIds": [], "relatedProgramIds": [a.id, b.id], "suggestedChanges": []}
+            for a, b in combinations(programs, 2) if b.start_at < a.end_at]
 
 
 def make_budget(inp: dict, days: list) -> dict:
@@ -213,18 +217,22 @@ def make_budget(inp: dict, days: list) -> dict:
 # 배포 전에 Upstash Workflow 단계 실행으로 옮긴다(기술 스택 정리표 5장).
 def run_generation(job_id: str) -> None:
     with SessionLocal() as db:
-        job = db.get(Job, job_id)
-        job.status, job.stage, job.updated_at = "RUNNING", "SCHEDULING", now()
-        db.commit()
         try:
+            job = db.get(Job, job_id)
+            job.status, job.stage, job.updated_at = "RUNNING", "SCHEDULING", now()
+            db.commit()
             plan = build_plan(db, db.get(TripRequest, job.request_id))
             db.add(plan)
-            job.status, job.stage, job.result = "SUCCEEDED", "SAVING", {"planId": plan.id}
+            job.status, job.stage, job.result, job.updated_at = "SUCCEEDED", "SAVING", {"planId": plan.id}, now()
+            db.commit()
         except Exception:
             log.exception("plan generation failed: %s", job_id)
-            db.rollback()
-            job = db.get(Job, job_id)
-            job.status = "FAILED"
-            job.error = {"code": "GENERATION_FAILED", "message": "계획을 만들지 못했습니다. 다시 시도해 주세요.", "retryable": True}
-        job.updated_at = now()
-        db.commit()
+            try:
+                db.rollback()
+                job = db.get(Job, job_id)
+                job.status, job.updated_at = "FAILED", now()
+                job.error = {"code": "GENERATION_FAILED", "message": "계획을 만들지 못했습니다. 다시 시도해 주세요.",
+                             "retryable": True}
+                db.commit()
+            except Exception:
+                log.exception("could not mark job FAILED: %s", job_id)

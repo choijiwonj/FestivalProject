@@ -15,13 +15,18 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session as DB
 
-from db import Session, User, get_db
+from db import DATABASE_URL, Session, User, get_db
 
 KST = timezone(timedelta(hours=9))  # 한국은 서머타임이 없어 고정 오프셋으로 충분
-# ponytail: 미설정 시 프로세스별 임시 키 → 재시작/인스턴스 간 위치 ID가 무효화(안전한 쪽으로 실패). 배포 땐 SECRET_KEY 필수.
+LOCAL = DATABASE_URL.startswith("sqlite")  # SQLite면 로컬 개발·테스트, 아니면 배포로 본다
+if not LOCAL and not os.getenv("SECRET_KEY"):
+    raise RuntimeError("배포 환경(SQLite 아닌 DATABASE_URL)에서는 SECRET_KEY 환경변수가 필요합니다.")
+# 로컬에서만 미설정 시 프로세스별 임시 키를 쓴다(재시작하면 위치 ID가 무효화).
 SECRET_KEY = (os.getenv("SECRET_KEY") or secrets.token_hex(32)).encode()
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1") == "1"
 DEV_LOGIN = os.getenv("DEV_LOGIN") == "1"
+if DEV_LOGIN and not LOCAL:
+    raise RuntimeError("DEV_LOGIN=1은 로컬(SQLite) 전용입니다. 배포 환경에서는 끄세요.")
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "")
 KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "")
 KAKAO_REDIRECT_URI = os.getenv("KAKAO_REDIRECT_URI", "http://localhost:3000/api/v1/auth/callback/kakao")

@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import date, datetime
 
 from dotenv import load_dotenv
@@ -9,9 +10,12 @@ load_dotenv()
 
 # 개발 기본값은 SQLite, 배포는 Supabase PostgreSQL URL을 DATABASE_URL로 넣는다.
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
+# Supabase가 주는 postgres(ql):// URL을 psycopg 3 드라이버로 연결한다.
+DATABASE_URL = re.sub(r"^postgres(ql)?://", "postgresql+psycopg://", DATABASE_URL)
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    # 시간 컬럼은 시간대 없는 UTC로 저장하므로 Postgres 세션도 UTC로 고정한다
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {"options": "-c timezone=UTC"},
 )
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 

@@ -39,7 +39,8 @@ export type Job = {
   status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED";
   stage: string;
   result: { planId?: string } | null;
-  error: { code: string; message: string } | null;
+  error: { code: string; message: string; retryable?: boolean } | null;
+  festivalId?: string | null;
 };
 
 export type Stop = {
