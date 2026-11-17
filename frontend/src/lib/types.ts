@@ -51,17 +51,45 @@ export type Stop = {
   endAt: string | null;
   costKrw: number | null;
   costStatus: string;
+  recommendationReason?: string | null;
+  address?: string | null;
+};
+
+export type Leg = {
+  fromStopId: string; toStopId: string; mode: string;
+  durationMinutes: number | null; distanceMeters: number | null;
+  departureAt?: string | null; arrivalAt?: string | null;
+  serviceTimeStatus?: string;
+  segments?: { mode: string; fromName?: string; toName?: string; durationMinutes?: number;
+    lines?: { busNo?: string; name?: string }[]; walkabilityStatus?: string }[];
 };
 
 export type TripPlan = {
   id: string;
+  version: number;
   title: string;
   status: "READY" | "NEEDS_REVIEW" | "INFEASIBLE";
-  days: { date: string; stops: Stop[] }[];
+  days: { date: string; stops: Stop[]; legs?: Leg[] }[];
+  inputSnapshot: Record<string, unknown> & { origin?: Location; additionalRequests?: string | null };
+  parentPlanId?: string | null;
   budget: { limitKrw: number | null; knownTotalKrw: number; unknownItemCount: number; status: string };
   warnings: { code: string; message: string }[];
   conflicts: { code: string; message: string }[];
   createdAt: string;
+};
+
+export type PlanExport = {
+  id: string;
+  planId: string;
+  jobId: string;
+  planVersion: number;
+  format: "PDF" | "PNG";
+  dates: string[];
+  status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED";
+  downloadUrl: string | null;
+  contentType: string | null;
+  filename: string | null;
+  error: { code: string; message: string } | null;
 };
 
 export type PlanSummary = { id: string; title: string; startDate: string; endDate: string; status: string };

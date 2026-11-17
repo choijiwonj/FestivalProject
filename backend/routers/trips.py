@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DB
@@ -14,6 +15,56 @@ from db import Festival, Job, TripPlan, TripRequest, User, get_db
 from planner import TripRequestInput, run_generation, validate_trip
 
 router = APIRouter()
+
+
+class RegenerationInput(TripRequestInput):
+    baseVersion: int = Field(ge=1, strict=True)
+
+
+@router.post("/trip-plans/{plan_id}/regenerations", status_code=202)
+def regenerate(plan_id: str, body: RegenerationInput, background: BackgroundTasks,
+               idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+               user: User = Depends(require_user), db: DB = Depends(get_db)):
+    parent = db.get(TripPlan, plan_id)
+    if parent is None or parent.user_id != user.id:
+        raise ApiError(404, "PLAN_NOT_FOUND", "여행 계획을 찾을 수 없습니다.")
+    try:
+        raw_key = str(uuid.UUID(idempotency_key or ""))
+    except ValueError:
+        raise ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key(UUID) 헤더가 필요합니다.")
+    key = str(uuid.uuid5(uuid.NAMESPACE_URL, f"/trip-plans/{plan_id}/regenerations:{raw_key}"))
+    digest = hashlib.sha256(body.model_dump_json().encode()).hexdigest()
+
+    def replay():
+        old = db.scalar(select(TripRequest).where(TripRequest.user_id == user.id, TripRequest.idempotency_key == key))
+        if old is None:
+            return None
+        if old.body_hash != digest:
+            raise ApiError(409, "IDEMPOTENCY_CONFLICT", "같은 요청 키로 다른 내용이 전송되었습니다.")
+        return accepted(old, db.scalar(select(Job).where(Job.request_id == old.id)))
+
+    if response := replay():
+        return response
+    if parent.version != body.baseVersion:
+        raise ApiError(409, "VERSION_CONFLICT", "계획이 변경되었습니다. 다시 조회해 주세요.")
+    conditions = TripRequestInput.model_validate(body.model_dump(exclude={"baseVersion"}))
+    normalized = validate_trip(db, conditions)["normalizedInput"]
+    normalized["_parentPlanId"] = parent.id
+    req = TripRequest(id=new_id("trq"), user_id=user.id, input=normalized,
+                      idempotency_key=key, body_hash=digest, created_at=now())
+    job = Job(id=new_id("job"), user_id=user.id, request_id=req.id, type="PLAN_GENERATION",
+              status="QUEUED", stage="VALIDATING", created_at=now(), updated_at=now())
+    db.add_all([req, job])
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        response = replay()
+        if response is None:
+            raise
+        return response
+    background.add_task(run_generation, job.id)
+    return accepted(req, job)
 
 
 def job_out(j: Job) -> dict:

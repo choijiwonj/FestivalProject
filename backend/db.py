@@ -165,3 +165,25 @@ class TripPlan(Base):
     conflicts: Mapped[list]
     is_favorite: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime]
+
+
+class PlanExport(Base):
+    __tablename__ = "plan_exports"
+    __table_args__ = (UniqueConstraint("plan_id", "idempotency_key"),)
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    plan_id: Mapped[str] = mapped_column(ForeignKey("trip_plans.id"))
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"))
+    plan_version: Mapped[int]
+    snapshot: Mapped[dict]
+    format: Mapped[str] = mapped_column(String(8))
+    selected_dates: Mapped[list]
+    status: Mapped[str] = mapped_column(String(16))
+    storage_key: Mapped[str | None]
+    content_type: Mapped[str | None] = mapped_column(String(40))
+    filename: Mapped[str | None]
+    error: Mapped[dict | None]
+    idempotency_key: Mapped[str] = mapped_column(String(36))
+    body_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
