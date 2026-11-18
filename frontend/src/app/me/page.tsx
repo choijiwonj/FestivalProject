@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { ApiFailure, api, loginUrl, resetSession, toFailure, useApi, useSession } from "@/lib/api";
 import { PLAN_STATUS, STAGES } from "@/lib/labels";
 import type { PlanSummary } from "@/lib/types";
-import { ErrorBox, Loading, button } from "../ui";
+import { ErrorBox, Loading, MoreButton, button } from "../ui";
 
 type RequestSummary = { id: string; jobId: string; stage: string; primaryFestival: { name: string | null } };
 
@@ -54,7 +54,7 @@ export default function MePage() {
     <div className="space-y-6">
       <h1 className="text-xl font-bold">{user.nickname}님</h1>
 
-      {active.error && <ErrorBox error={active.error} />}
+      {active.error && <ErrorBox error={active.error} onRetry={active.retry} />}
       {active.data && active.data.length > 0 && (
         <section className="space-y-2">
           <h2 className="font-semibold">만드는 중인 계획</h2>
@@ -69,7 +69,7 @@ export default function MePage() {
       <section className="space-y-2">
         <h2 className="font-semibold">내 여행 계획</h2>
         {plans.loading && <Loading />}
-        {plans.error && <ErrorBox error={plans.error} />}
+        {plans.error && <ErrorBox error={plans.error} onRetry={plans.retry} />}
         {plans.data?.length === 0 && <p className="text-sm opacity-60">아직 만든 계획이 없어요.</p>}
         {plans.data?.map((p) => (
           <Link key={p.id} href={`/plans/${p.id}`} className="block rounded-lg border border-black/10 p-3">
@@ -77,6 +77,7 @@ export default function MePage() {
             <p className="text-sm opacity-70">{p.startDate} ~ {p.endDate} · {PLAN_STATUS[p.status] ?? p.status}</p>
           </Link>
         ))}
+        <MoreButton onMore={plans.more} />
       </section>
 
       {confirmLogout ? (

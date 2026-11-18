@@ -39,7 +39,13 @@ export default function JobPage() {
           delay = Math.min(delay * 1.5, 10000);
         }
       } catch (e) {
-        if (alive) setError(toFailure(e));
+        if (!alive) return;
+        const failure = toFailure(e);
+        // 일시 오류(네트워크·5xx)는 다음 조회에서 다시 시도한다
+        if (failure.body.retryable && Date.now() - startedAt <= MAX_WAIT) {
+          timer = setTimeout(tick, delay);
+          delay = Math.min(delay * 1.5, 10000);
+        } else setError(failure);
       }
     }
     tick();

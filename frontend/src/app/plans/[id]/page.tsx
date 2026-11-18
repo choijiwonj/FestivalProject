@@ -1,8 +1,8 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useRef, useState } from "react";
-import { api, toFailure, useApi } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { ApiFailure, api, toFailure, useApi, uuid } from "@/lib/api";
 import { BUDGET_STATUS, PLAN_STATUS, krw, time } from "@/lib/labels";
 import type { PlanExport, TripPlan } from "@/lib/types";
 import { button, ErrorBox, Loading } from "../../ui";
@@ -11,7 +11,7 @@ import { button, ErrorBox, Loading } from "../../ui";
 export default function PlanPage() {
   const router = useRouter();
   const [regenerating, setRegenerating] = useState(false);
-  const [request, setRequest] = useState("");
+  const [request, setRequest] = useState<string | null>(null); // null = 이전 요청사항 그대로
   const [regenerationError, setRegenerationError] = useState<string | null>(null);
   const regenerationKey = useRef<string | null>(null);
   const { id } = useParams<{ id: string }>();
@@ -21,17 +21,25 @@ export default function PlanPage() {
   const [exportResult, setExportResult] = useState<PlanExport | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const p = plan.data;
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false; // 화면을 떠나면 내보내기 조회를 멈춘다
+    };
+  }, []);
+  const requestText = request ?? p?.inputSnapshot.additionalRequests ?? "";
 
   async function regenerate() {
     if (!p || regenerating) return;
     setRegenerating(true);
     setRegenerationError(null);
-    regenerationKey.current ??= crypto.randomUUID();
     try {
+      regenerationKey.current ??= uuid();
       const accepted = await api<{jobId: string}>(`/trip-plans/${p.id}/regenerations`, {
         method: "POST", headers: {"Idempotency-Key": regenerationKey.current},
         json: {...p.inputSnapshot, baseVersion: p.version,
-          additionalRequests: request.trim() || p.inputSnapshot.additionalRequests || null},
+          additionalRequests: requestText.trim() || null},
       });
       router.push(`/jobs/${accepted.data.jobId}`);
     } catch (error) {
@@ -48,16 +56,24 @@ export default function PlanPage() {
     try {
       const accepted = await api<{ exportId: string }>(`/trip-plans/${p.id}/exports`, {
         method: "POST",
-        headers: { "Idempotency-Key": crypto.randomUUID() },
+        headers: { "Idempotency-Key": uuid() },
         json: { format, version: p.version },
       });
+      const deadline = Date.now() + 3 * 60 * 1000;
       for (;;) {
-        const result = (await api<PlanExport>(`/exports/${accepted.data.exportId}`)).data;
-        if (result.status === "SUCCEEDED") {
+        if (!alive.current) return;
+        if (Date.now() > deadline) throw new Error("파일을 만드는 데 너무 오래 걸려요. 다시 시도해 주세요.");
+        let result: PlanExport | null = null;
+        try {
+          result = (await api<PlanExport>(`/exports/${accepted.data.exportId}`)).data;
+        } catch (e) {
+          if (!(e instanceof ApiFailure && e.body.retryable)) throw e; // 일시 오류는 다음 조회에서 다시
+        }
+        if (result?.status === "SUCCEEDED") {
           setExportResult(result);
           break;
         }
-        if (result.status === "FAILED") throw new Error(result.error?.message ?? "파일을 만들지 못했습니다.");
+        if (result?.status === "FAILED") throw new Error(result.error?.message ?? "파일을 만들지 못했습니다.");
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     } catch (error) {
@@ -68,7 +84,7 @@ export default function PlanPage() {
   }
 
   if (plan.loading) return <Loading />;
-  if (plan.error || !p) return plan.error ? <ErrorBox error={plan.error} /> : null;
+  if (plan.error || !p) return plan.error ? <ErrorBox error={plan.error} onRetry={plan.retry} /> : null;
   const current = p.days[day];
   const modes: Record<string, string> = {CAR:"자동차", PUBLIC_TRANSIT:"대중교통", BUS:"버스", SUBWAY:"지하철",
     TRAIN:"열차", EXPRESS_BUS:"고속버스", INTERCITY_BUS:"시외버스", WALK:"도보", TRANSFER_BUFFER:"승차 준비시간(가정)"};
@@ -94,7 +110,7 @@ export default function PlanPage() {
       )}
       {p.warnings.length > 0 && (
         <ul className="space-y-1 text-sm">
-          {p.warnings.map((w) => <li key={w.code}>ℹ {w.message}</li>)}
+          {p.warnings.map((w, i) => <li key={`${w.code}-${i}`}>ℹ {w.message}</li>)}
         </ul>
       )}
 
@@ -136,7 +152,7 @@ export default function PlanPage() {
         <h2 className="font-semibold">다시 추천받기</h2>
         <p>현재 여행 조건으로 새 계획을 만듭니다. 기존 계획은 보관됩니다.</p>
         <label className="block">변경할 요청사항 (선택)
-          <textarea className="block w-full rounded border p-2" value={request} maxLength={1000}
+          <textarea className="block w-full rounded border p-2" value={requestText} maxLength={1000}
             onChange={e => {setRequest(e.target.value); regenerationKey.current = null;}} disabled={regenerating}/>
         </label>
         <button className={button} onClick={regenerate} disabled={regenerating}>{regenerating ? "재추천 요청 중…" : "다시 추천받기"}</button>

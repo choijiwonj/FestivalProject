@@ -427,12 +427,13 @@ def test_unavailable_route_is_not_saved_as_zero_minutes(client, monkeypatch, con
     assert any(w["code"] == "ROUTE_UNAVAILABLE" for w in plan["warnings"])
 
 
-def test_route_provider_permission_error_fails_generation(client, monkeypatch):
-    mock_car_directions(monkeypatch, 403, {"msg": "provider detail"})
-    job = generate_trip(client)
-    assert job["status"] == "FAILED" and job["result"] is None
-    assert job["error"]["code"] == "PROVIDER_UNAVAILABLE"
-    assert "provider detail" not in job["error"]["message"]
+@pytest.mark.parametrize("status_code", [403, 503])
+def test_route_provider_error_keeps_plan_with_warning(client, monkeypatch, status_code):
+    mock_car_directions(monkeypatch, status_code, {"msg": "provider detail"})
+    plan = generated_plan(client)
+    assert all(day["legs"] == [] for day in plan["days"])
+    warning, = [w for w in plan["warnings"] if w["code"] == "ROUTE_UNAVAILABLE"]
+    assert "provider detail" not in warning["message"]
 
 
 SCHEDULE_ORIGIN = (127.38, 36.35)

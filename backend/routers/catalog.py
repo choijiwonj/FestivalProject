@@ -1,4 +1,5 @@
-"""축제·장소·위치 검색 (공개)."""
+"""축제·장소 조회 (공개)와 위치 검색 (로그인 필요)."""
+import logging
 from datetime import date, datetime, timedelta
 from typing import Literal
 
@@ -7,10 +8,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DB
 
-from core import KAKAO_REST_API_KEY, KST, ApiError, distance_m, field, iso, ok, paginate, sign_location
-from db import Festival, Place, Program, get_db
+from core import KAKAO_REST_API_KEY, KST, ApiError, distance_m, field, iso, ok, paginate, require_user, sign_location
+from db import Festival, Place, Program, User, get_db
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 Region = Literal["CHEONAN", "GONGJU", "BORYEONG", "ASAN", "SEOSAN", "NONSAN", "GYERYONG", "DANGJIN", "GEUMSAN",
                  "BUYEO", "SEOCHEON", "CHEONGYANG", "HONGSEONG", "YESAN", "TAEAN"]
@@ -180,7 +182,8 @@ def place(place_id: str, db: DB = Depends(get_db)):
 
 
 @router.get("/locations/search")
-def locations(q: str = Query(min_length=2, max_length=100), limit: int = Query(5, ge=1, le=10)):
+def locations(q: str = Query(min_length=2, max_length=100), limit: int = Query(5, ge=1, le=10),
+              user: User = Depends(require_user)):
     import os
     location_key = KAKAO_REST_API_KEY or os.getenv("KAKAO_MOBILITY_REST_API_KEY", "").strip()
     if not location_key:
@@ -190,7 +193,14 @@ def locations(q: str = Query(min_length=2, max_length=100), limit: int = Query(5
                       headers={"Authorization": f"KakaoAK {location_key}"}, timeout=5)
         r.raise_for_status()
         docs = r.json()["documents"]
-    except (httpx.HTTPError, KeyError, ValueError):
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        log.warning("Kakao location search HTTP status=%s", status)
+        if status in (401, 403):
+            raise ApiError(503, "PROVIDER_UNAVAILABLE", "위치 검색 키나 앱 권한을 확인해 주세요.") from None
+        raise ApiError(503, "PROVIDER_UNAVAILABLE", "위치 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.", retryable=True)
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        log.warning("Kakao location search failed: %s", type(exc).__name__)
         raise ApiError(503, "PROVIDER_UNAVAILABLE", "위치 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.", retryable=True)
     out = []
     for d in docs:

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useApi } from "@/lib/api";
 import type { Festival } from "@/lib/types";
-import { ErrorBox, FestivalCard, Loading, input } from "./ui";
+import { ErrorBox, FestivalCard, Loading, MoreButton, input } from "./ui";
 
 // S01 홈 + S02 전체 축제 + S15 결과 없음. 홈에는 AI 생성 버튼을 두지 않는다(B01).
 export default function Home() {
@@ -39,9 +39,10 @@ export default function Home() {
           <button className="shrink-0 rounded-lg border border-black/20 px-3">검색</button>
         </form>
         {list.loading && <Loading />}
-        {list.error && <ErrorBox error={list.error} />}
+        {list.error && <ErrorBox error={list.error} onRetry={list.retry} />}
         {list.data?.length === 0 && <p className="py-4 text-center text-sm opacity-60">검색 결과가 없어요. 검색어를 바꿔 보세요.</p>}
         {list.data?.map((f) => <FestivalCard key={f.id} f={f} />)}
+        <MoreButton onMore={list.more} />
       </section>
     </div>
   );

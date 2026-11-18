@@ -5,8 +5,6 @@ import { usePathname } from "next/navigation";
 
 const TABS = [
   { href: "/", label: "홈" },
-  { href: "/map", label: "지도" },
-  { href: "/posts", label: "게시판" },
   { href: "/me", label: "마이페이지" },
 ];
 
