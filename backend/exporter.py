@@ -1,11 +1,13 @@
 """Render an immutable trip-plan snapshot as PDF or date-based PNG files."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 import zipfile
 from datetime import datetime
 from html import escape
+from io import BytesIO
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -21,19 +23,14 @@ from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemp
 from core import ApiError, iso, now
 from db import Job, PlanExport, SessionLocal
 
-
-def export_dir() -> Path:
-    path = Path(os.getenv("EXPORT_STORAGE_DIR", Path(__file__).parent / "storage" / "exports"))
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+log = logging.getLogger(__name__)
 
 
 def font_path() -> Path:
+    # 저장소에 넣은 NanumGothic(SIL OFL, fonts/OFL.txt)을 기본으로 쓴다.
     candidates = [
         os.getenv("EXPORT_FONT_PATH"),
-        "C:/Windows/Fonts/malgun.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        Path(__file__).parent / "fonts" / "NanumGothic-Regular.ttf",
     ]
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
@@ -101,7 +98,7 @@ def register_pdf_font() -> str:
     return name
 
 
-def render_pdf(snapshot: dict, dates: list[str], output: Path, generated_at: datetime) -> None:
+def render_pdf(snapshot: dict, dates: list[str], output: BytesIO, generated_at: datetime) -> None:
     font = register_pdf_font()
     styles = getSampleStyleSheet()
     title = ParagraphStyle("TripTitle", parent=styles["Title"], fontName=font, fontSize=22,
@@ -111,7 +108,7 @@ def render_pdf(snapshot: dict, dates: list[str], output: Path, generated_at: dat
     body = ParagraphStyle("Body", parent=styles["BodyText"], fontName=font, fontSize=9.5,
                           leading=15, textColor=colors.HexColor("#263238"))
     small = ParagraphStyle("Small", parent=body, fontSize=8, leading=12, textColor=colors.HexColor("#607D8B"))
-    doc = SimpleDocTemplate(str(output), pagesize=A4, leftMargin=17*mm, rightMargin=17*mm,
+    doc = SimpleDocTemplate(output, pagesize=A4, leftMargin=17*mm, rightMargin=17*mm,
                             topMargin=17*mm, bottomMargin=17*mm, title=snapshot["title"])
     story = [Paragraph(escape(snapshot["title"]), title), Spacer(1, 3*mm),
              Paragraph(f"계획 버전 {snapshot['version']} · 상태 {escape(snapshot['status'])}", body),
@@ -195,7 +192,7 @@ def wrap_lines(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> li
     return lines or [""]
 
 
-def render_day_png(snapshot: dict, day: dict, day_number: int, output: Path, generated_at: datetime) -> None:
+def render_day_png(snapshot: dict, day: dict, day_number: int, output: BytesIO, generated_at: datetime) -> None:
     width, margin, content_width = 1400, 90, 1220
     title_font, heading_font, body_font, small_font = pil_font(48), pil_font(31), pil_font(24), pil_font(19)
     probe = Image.new("RGB", (width, 100), "white")
@@ -265,75 +262,60 @@ def render_day_png(snapshot: dict, day: dict, day_number: int, output: Path, gen
     image.crop((0, 0, width, min(image.height, y + 90))).save(output, format="PNG", optimize=True)
 
 
-def create_export_file(record: PlanExport) -> tuple[str, str, str]:
-    directory = export_dir()
+def create_export_file(record: PlanExport) -> tuple[bytes, str, str]:
     base = f"{safe_name(record.snapshot['title'])}-v{record.plan_version}"
     generated_at = now()
+    output = BytesIO()
     if record.format == "PDF":
-        filename = f"{base}.pdf"
-        storage_key = f"{record.id}.pdf"
-        render_pdf(record.snapshot, record.selected_dates, directory / storage_key, generated_at)
-        return storage_key, "application/pdf", filename
+        render_pdf(record.snapshot, record.selected_dates, output, generated_at)
+        return output.getvalue(), "application/pdf", f"{base}.pdf"
     days = selected_days(record.snapshot, record.selected_dates)
     if len(days) == 1:
-        filename = f"{base}-{days[0]['date']}.png"
-        storage_key = f"{record.id}.png"
         day_number = record.snapshot["days"].index(days[0]) + 1
-        render_day_png(record.snapshot, days[0], day_number, directory / storage_key, generated_at)
-        return storage_key, "image/png", filename
-    storage_key, filename = f"{record.id}.zip", f"{base}-images.zip"
-    temp_files = []
-    try:
-        with zipfile.ZipFile(directory / storage_key, "w", zipfile.ZIP_DEFLATED) as archive:
-            for day in days:
-                index = record.snapshot["days"].index(day) + 1
-                temp = directory / f"{record.id}-{day['date']}.png"
-                render_day_png(record.snapshot, day, index, temp, generated_at)
-                archive.write(temp, f"DAY-{index}-{day['date']}.png")
-                temp_files.append(temp)
-    finally:
-        for temp in temp_files:
-            temp.unlink(missing_ok=True)
-    return storage_key, "application/zip", filename
+        render_day_png(record.snapshot, days[0], day_number, output, generated_at)
+        return output.getvalue(), "image/png", f"{base}-{days[0]['date']}.png"
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        for day in days:
+            index = record.snapshot["days"].index(day) + 1
+            png = BytesIO()
+            render_day_png(record.snapshot, day, index, png, generated_at)
+            archive.writestr(f"DAY-{index}-{day['date']}.png", png.getvalue())
+    return output.getvalue(), "application/zip", f"{base}-images.zip"
 
 
 def run_export(export_id: str) -> None:
     with SessionLocal() as db:
-        record = db.get(PlanExport, export_id)
-        if record is None:
-            return
-        job = db.get(Job, record.job_id)
-        record.status = job.status = "RUNNING"
-        job.stage = "EXPORTING"
-        record.updated_at = job.updated_at = now()
-        db.commit()
         try:
-            storage_key, content_type, filename = create_export_file(record)
             record = db.get(PlanExport, export_id)
+            if record is None:
+                return
             job = db.get(Job, record.job_id)
-            record.storage_key, record.content_type, record.filename = storage_key, content_type, filename
-            record.status = job.status = "SUCCEEDED"
-            job.result = {"exportId": record.id}
+            record.status = job.status = "RUNNING"
+            job.stage = "EXPORTING"
+            record.updated_at = job.updated_at = now()
+            db.commit()
+            content, content_type, filename = create_export_file(record)
+            # 시간 초과로 이미 실패 처리됐으면 덮어쓰지 않는다(RUNNING일 때만 완료로 바꾼다).
+            done = now()
+            saved = db.query(PlanExport).filter(PlanExport.id == export_id, PlanExport.status == "RUNNING").update(
+                {"content": content, "content_type": content_type, "filename": filename,
+                 "status": "SUCCEEDED", "updated_at": done})
+            saved += db.query(Job).filter(Job.id == record.job_id, Job.status == "RUNNING").update(
+                {"status": "SUCCEEDED", "result": {"exportId": export_id}, "updated_at": done})
+            if saved == 2:
+                db.commit()
+            else:
+                db.rollback()
+            return
         except ApiError as exc:
-            db.rollback()
-            record = db.get(PlanExport, export_id)
-            job = db.get(Job, record.job_id)
-            record.status = job.status = "FAILED"
-            record.error = job.error = {"code": exc.code, "message": exc.message, "retryable": exc.retryable}
+            error = {"code": exc.code, "message": exc.message, "retryable": exc.retryable}
         except Exception:
-            db.rollback()
-            record = db.get(PlanExport, export_id)
-            job = db.get(Job, record.job_id)
-            record.status = job.status = "FAILED"
-            record.error = job.error = {"code": "EXPORT_FAILED", "message": "파일을 만들지 못했습니다.", "retryable": True}
+            log.exception("export failed: %s", export_id)
+            error = {"code": "EXPORT_FAILED", "message": "파일을 만들지 못했습니다.", "retryable": True}
+        db.rollback()
+        record = db.get(PlanExport, export_id)
+        job = db.get(Job, record.job_id)
+        record.status = job.status = "FAILED"
+        record.error = job.error = error
         record.updated_at = job.updated_at = now()
         db.commit()
-
-
-def storage_path(record: PlanExport) -> Path:
-    if not record.storage_key or Path(record.storage_key).name != record.storage_key:
-        raise ApiError(404, "EXPORT_FILE_NOT_FOUND", "내보내기 파일을 찾을 수 없습니다.")
-    path = export_dir() / record.storage_key
-    if not path.is_file():
-        raise ApiError(404, "EXPORT_FILE_NOT_FOUND", "내보내기 파일을 찾을 수 없습니다.")
-    return path

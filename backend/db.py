@@ -3,8 +3,9 @@ import re
 from datetime import date, datetime
 
 from dotenv import load_dotenv
-from sqlalchemy import JSON, Float, ForeignKey, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import JSON, Float, ForeignKey, LargeBinary, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy.pool import NullPool
 
 load_dotenv()
 
@@ -12,11 +13,13 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
 # Supabase가 주는 postgres(ql):// URL을 psycopg 3 드라이버로 연결한다.
 DATABASE_URL = re.sub(r"^postgres(ql)?://", "postgresql+psycopg://", DATABASE_URL)
-engine = create_engine(
-    DATABASE_URL,
-    # 시간 컬럼은 시간대 없는 UTC로 저장하므로 Postgres 세션도 UTC로 고정한다
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {"options": "-c timezone=UTC"},
-)
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    # 시간 컬럼은 시간대 없는 UTC로 저장하므로 Postgres 세션도 UTC로 고정한다.
+    # 서버리스 + Supabase 트랜잭션 풀러: 연결은 풀러가 관리하고(NullPool), prepared statement는 끈다.
+    engine = create_engine(DATABASE_URL, poolclass=NullPool,
+                           connect_args={"options": "-c timezone=UTC", "prepare_threshold": None})
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 
@@ -182,6 +185,8 @@ class PlanExport(Base):
     storage_key: Mapped[str | None]
     content_type: Mapped[str | None] = mapped_column(String(40))
     filename: Mapped[str | None]
+    # ponytail: 파일을 DB 행에 보관(서버리스에 로컬 디스크 없음). 파일이 커지거나 많아지면 객체 저장소로 옮긴다.
+    content: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)  # 상태 조회 때는 읽지 않는다
     error: Mapped[dict | None]
     idempotency_key: Mapped[str] = mapped_column(String(36))
     body_hash: Mapped[str] = mapped_column(String(64))

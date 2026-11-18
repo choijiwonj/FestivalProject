@@ -393,8 +393,8 @@ def make_budget(inp: dict, days: list) -> dict:
             "lodgingIncluded": inp["lodgingPreference"] != "SELF_ARRANGED"}
 
 
-# ponytail: FastAPI BackgroundTasks로 같은 프로세스에서 실행. Vercel 서버리스는 응답 후 프로세스가 멈출 수 있으니
-# 배포 전에 Upstash Workflow 단계 실행으로 옮긴다(기술 스택 정리표 5장).
+# ponytail: core.defer로 실행. 로컬은 BackgroundTasks, Vercel은 요청 안에서 동기 실행이라 생성이
+# Vercel 함수 maxDuration 안에 끝나야 한다. 생성이 더 길어지면 큐(Upstash Workflow 등)로 옮긴다.
 def run_generation(job_id: str) -> None:
     with SessionLocal() as db:
         try:
@@ -404,12 +404,12 @@ def run_generation(job_id: str) -> None:
 
             plan = build_plan(db, db.get(TripRequest, job.request_id))
             db.add(plan)
-            job.status, job.stage, job.result, job.updated_at = (
-                "SUCCEEDED",
-                "SAVING",
-                {"planId": plan.id},
-                now(),
-            )
+            # 시간 초과로 이미 실패 처리됐으면 계획을 저장하지 않는다(RUNNING일 때만 완료로 바꾼다).
+            saved = db.query(Job).filter(Job.id == job_id, Job.status == "RUNNING").update(
+                {"status": "SUCCEEDED", "stage": "SAVING", "result": {"planId": plan.id}, "updated_at": now()})
+            if not saved:
+                db.rollback()
+                return
             db.commit()
 
         except ApiError as exc:

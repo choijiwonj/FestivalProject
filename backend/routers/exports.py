@@ -1,19 +1,20 @@
 """Trip plan PDF/PNG export jobs (F15/S18)."""
 import hashlib
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DB
 
-from core import ApiError, iso, new_id, now, ok, require_user
+from core import ApiError, aware, defer, iso, new_id, now, ok, require_user
 from db import Job, PlanExport, TripPlan, User, get_db
-from exporter import run_export, storage_path
+from exporter import run_export
 from routers.trips import plan_out
 
 router = APIRouter()
@@ -101,9 +102,9 @@ def create_export(plan_id: str, body: ExportInput, background: BackgroundTasks,
         db.rollback()
         response = replay()
         if response is None:
-            raise
+            raise ApiError(409, "IDEMPOTENCY_CONFLICT", "요청이 다른 요청과 충돌했습니다. 다시 시도해 주세요.", retryable=True)
         return response
-    background.add_task(run_export, record.id)
+    defer(background, run_export, record.id)
     return ok({"exportId": record.id, "jobId": job.id,
                "statusUrl": f"/api/v1/exports/{record.id}"}, status=202)
 
@@ -113,6 +114,14 @@ def get_export(export_id: str, user: User = Depends(require_user), db: DB = Depe
     record = db.get(PlanExport, export_id)
     if record is None or record.user_id != user.id:
         raise ApiError(404, "EXPORT_NOT_FOUND", "내보내기 작업을 찾을 수 없습니다.")
+    # 재시작으로 멈춘 작업은 읽을 때 실패로 정리한다(trips.get_job과 같은 기준)
+    if record.status in ("QUEUED", "RUNNING") and aware(record.updated_at) < now() - timedelta(minutes=10):
+        job = db.get(Job, record.job_id)
+        record.status = job.status = "FAILED"
+        record.error = job.error = {"code": "EXPORT_TIMEOUT", "retryable": True,
+                                    "message": "파일을 만드는 데 너무 오래 걸렸어요. 다시 시도해 주세요."}
+        record.updated_at = job.updated_at = now()
+        db.commit()
     extra = {} if record.status in ("SUCCEEDED", "FAILED") else {"pollAfterSeconds": 3}
     return ok(export_out(record), **extra)
 
@@ -124,4 +133,8 @@ def download_export(export_id: str, user: User = Depends(require_user), db: DB =
         raise ApiError(404, "EXPORT_NOT_FOUND", "내보내기 작업을 찾을 수 없습니다.")
     if record.status != "SUCCEEDED":
         raise ApiError(409, "EXPORT_NOT_READY", "파일 생성이 아직 완료되지 않았습니다.")
-    return FileResponse(storage_path(record), media_type=record.content_type, filename=record.filename)
+    if record.content is None:
+        raise ApiError(404, "EXPORT_FILE_NOT_FOUND", "내보내기 파일을 찾을 수 없습니다.")
+    # 파일명에 한글이 있어 RFC 5987 형식으로 보낸다
+    return Response(content=record.content, media_type=record.content_type,
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(record.filename)}"})

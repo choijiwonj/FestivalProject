@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DB
 
-from core import ApiError, aware, iso, new_id, now, ok, paginate, require_user
+from core import ApiError, aware, defer, iso, new_id, now, ok, paginate, require_user
 from db import Festival, Job, TripPlan, TripRequest, User, get_db
 from planner import TripRequestInput, run_generation, validate_trip
 
@@ -61,9 +61,9 @@ def regenerate(plan_id: str, body: RegenerationInput, background: BackgroundTask
         db.rollback()
         response = replay()
         if response is None:
-            raise
+            raise ApiError(409, "IDEMPOTENCY_CONFLICT", "요청이 다른 요청과 충돌했습니다. 다시 시도해 주세요.", retryable=True)
         return response
-    background.add_task(run_generation, job.id)
+    defer(background, run_generation, job.id)
     return accepted(req, job)
 
 
@@ -122,7 +122,7 @@ def create_trip(body: TripRequestInput, background: BackgroundTasks,
         if resp := replay():
             return resp
         raise ApiError(409, "IDEMPOTENCY_CONFLICT", "요청이 다른 요청과 충돌했습니다. 다시 시도해 주세요.", retryable=True)
-    background.add_task(run_generation, job.id)
+    defer(background, run_generation, job.id)
     return accepted(req, job)
 
 

@@ -35,8 +35,10 @@ backend/   FastAPI · SQLAlchemy (Vercel 프로젝트 2)
 | KAKAO_MOBILITY_REST_API_KEY | 카카오디벨로퍼스 REST API 키 | 자동차 길찾기. 키가 있으면 `CAR` 계획에 첫 축제장까지 예상 이동시간과 거리 저장 |
 | KAKAO_CLIENT_SECRET | | 카카오 앱에서 켰을 때만 |
 | KAKAO_REDIRECT_URI | `http://localhost:3000/api/v1/auth/callback/kakao` | 카카오 앱에 같은 주소 등록 |
-| EXPORT_STORAGE_DIR | `backend/storage/exports` | 선택. PDF·PNG·ZIP 저장 위치 |
-| EXPORT_FONT_PATH | `C:/Windows/Fonts/malgun.ttf` | 선택. 배포 서버의 한글 TTF/TTC 글꼴 경로 |
+| EXPORT_FONT_PATH | `C:/Windows/Fonts/malgun.ttf` | 선택. 한글 TTF/TTC 글꼴 경로. 생략하면 `backend/fonts/NanumGothic-Regular.ttf`(SIL OFL) 사용 |
+
+Vercel 배포 시: `VERCEL=1`이면 생성·내보내기를 요청 안에서 바로 실행하므로, 백엔드 함수의 `maxDuration`이 계획 생성 시간(약 1~2분)을 넘게 잡혀 있어야 한다.
+기존 Postgres DB는 `create_all`이 컬럼을 추가하지 않으므로 한 번 실행한다: `ALTER TABLE plan_exports ADD COLUMN content BYTEA;`
 
 프런트 (`frontend/.env.local`)
 
@@ -70,7 +72,7 @@ npm run dev
 로컬에서 시간표를 확인하려면 `fst_demo_01`의 시작일로 당일 자차 여행을 만들고 `requiredProgramIds`에 `pr_demo_01`, `requiredPlaceIds`에 `pl_demo_02`를 넣는다. 장소 영업시간은 한국시간 기준 요일 키 `mon`~`sun`과 구간 배열을 사용한다. 예시 형식은 `{"mon":[{"open":"09:00","close":"13:00"}]}`이다.
 
 1박 2일은 `fst_demo_01` 첫날과 다음 날을 선택하고 `lodgingPreference: "HOTEL"`, `requiredProgramIds: ["pr_demo_01", "pr_demo_04"]`를 보낸다. 숙소 후보는 축제장 반경 5km 안의 `LODGING` 장소이며 특정 숙박 유형은 `tags`에 `HOTEL`, `PENSION`, `GUESTHOUSE`를 사용한다. 숙소 도착·출발 시간은 경로 계산으로 얻은 예상 시각이다. 직접 예약한 숙소의 좌표는 현재 요청에서 받지 않으므로 `SELF_ARRANGED`이면 연결 구간을 미확인으로 표시한다.
-- 계획 상세에서 PDF 또는 날짜별 PNG 내보내기를 요청할 수 있다. 여러 날짜의 PNG는 ZIP으로 묶고, 파일에는 계획 버전·생성 시각·일정·이동 구간·예산·경고를 포함한다. 파일 다운로드는 계획 소유자에게만 허용한다. 로컬 파일 저장은 배포 시 S3 호환 객체 저장소로 교체한다.
-- 생성·내보내기 작업은 FastAPI BackgroundTasks로 실행 → 배포 전 Upstash Workflow로 이전.
+- 계획 상세에서 PDF 또는 날짜별 PNG 내보내기를 요청할 수 있다. 여러 날짜의 PNG는 ZIP으로 묶고, 파일에는 계획 버전·생성 시각·일정·이동 구간·예산·경고를 포함한다. 파일 다운로드는 계획 소유자에게만 허용한다. 파일은 `plan_exports.content`에 저장한다(커지면 S3 호환 객체 저장소로 교체).
+- 생성·내보내기 작업은 로컬은 FastAPI BackgroundTasks, Vercel은 요청 안에서 동기 실행 → 생성이 maxDuration을 넘으면 Upstash Workflow로 이전.
 - 테이블은 시작 시 `create_all` → 운영 DB 전에 Alembic.
 - 게시판·사진 업로드·계정/탈퇴·서비스 안내 API.
