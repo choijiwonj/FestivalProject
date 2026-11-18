@@ -1,5 +1,6 @@
 """카카오모빌리티 자동차 길찾기."""
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from math import ceil
@@ -9,6 +10,7 @@ import httpx
 from core import ApiError, iso, now
 
 DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/directions"
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -45,16 +47,19 @@ def get_car_route(api_key: str, origin: tuple[float, float], destination: tuple[
         )
         response.raise_for_status()
     except httpx.TimeoutException:
+        log.warning("Kakao Mobility directions timeout")
         raise ApiError(503, "TIMEOUT", "자동차 길찾기 응답 시간이 초과되었습니다.", retryable=True) from None
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
+        log.warning("Kakao Mobility directions HTTP status=%s", status)
         if status == 429:
             raise ApiError(429, "RATE_LIMITED", "자동차 길찾기 호출 한도에 도달했습니다.", retryable=True) from None
         if status in (401, 403):
             raise ApiError(503, "PROVIDER_UNAVAILABLE", "자동차 길찾기 키나 앱 권한을 확인해 주세요.") from None
         raise ApiError(503, "PROVIDER_UNAVAILABLE", "자동차 길찾기를 호출할 수 없습니다.",
                        retryable=status >= 500) from None
-    except httpx.RequestError:
+    except httpx.RequestError as exc:
+        log.warning("Kakao Mobility directions connection failure: %s", type(exc).__name__)
         raise ApiError(503, "PROVIDER_UNAVAILABLE", "자동차 길찾기에 연결할 수 없습니다.", retryable=True) from None
 
     try:
@@ -71,7 +76,8 @@ def get_car_route(api_key: str, origin: tuple[float, float], destination: tuple[
         duration, distance = summary["duration"], summary["distance"]
         if type(duration) is not int or type(distance) is not int or min(duration, distance) < 0:
             raise ValueError("Invalid route duration or distance")
-    except (ValueError, KeyError, IndexError, TypeError):
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        log.warning("Kakao Mobility directions invalid response: %s", type(exc).__name__)
         raise ApiError(503, "PROVIDER_UNAVAILABLE", "자동차 길찾기 응답을 확인할 수 없습니다.",
                        retryable=True) from None
 

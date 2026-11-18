@@ -1,9 +1,12 @@
 """ODsay static city transit routes; no verified service timetable."""
+import logging
 from dataclasses import dataclass
 from math import ceil, isfinite
 import httpx
 from core import ApiError, distance_m
 from routing import CarRoute
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,8 +67,10 @@ def fetch_transit_route(session, origin, destination, local_only=False):
                             params={'apiKey': session.api_key, 'SX': origin[1], 'SY': origin[0],
                                     'EX': destination[1], 'EY': destination[0], 'SearchType': 0}, timeout=15)
         response.raise_for_status()
-    except httpx.HTTPError:
-        # Never propagate the request URL: it contains the API key.
+    except httpx.HTTPError as exc:
+        # Never propagate or log the request URL (or str(exc)): it contains the API key.
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        log.warning('ODsay request failed: %s status=%s', type(exc).__name__, status)
         raise ApiError(503, 'TRANSIT_PROVIDER_UNAVAILABLE', 'ODsay 연결 또는 키·권한을 확인해 주세요.', retryable=True) from None
     try:
         data = response.json()
@@ -85,6 +90,7 @@ def fetch_transit_route(session, origin, destination, local_only=False):
                         'estimateBasis': 'STRAIGHT_LINE_X_1_5', 'walkabilityStatus': 'UNCONFIRMED',
                         'fromCoordinates': origin, 'toCoordinates': destination},), 0)
                 return None
+            log.warning('ODsay error code=%s', code)
             raise ApiError(503, 'TRANSIT_PROVIDER_UNAVAILABLE', 'ODsay 오류 코드: ' + code)
         result = data['result']
         if result.get('searchType') in (1, 2):
@@ -110,7 +116,8 @@ def fetch_transit_route(session, origin, destination, local_only=False):
                           ceil(number(info['trafficDistance']) + number(info['totalWalk'])),
                           tuple(segments), int(number(info['payment'])) if 'payment' in info else None))
         return min(routes, key=lambda r: r.duration_seconds) if routes else None
-    except (ValueError, KeyError, TypeError, IndexError):
+    except (ValueError, KeyError, TypeError, IndexError) as exc:
+        log.warning('ODsay invalid response: %s', type(exc).__name__)
         raise ApiError(503, 'TRANSIT_RESPONSE_INVALID', 'ODsay 경로 응답을 확인할 수 없습니다.') from None
 
 

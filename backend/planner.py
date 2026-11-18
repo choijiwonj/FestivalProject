@@ -255,6 +255,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
             except ApiError as exc:
                 if not exc.retryable:
                     raise
+                log.warning("Gemini recommendation failed, using nearest-place fallback: %s", exc.code)
                 warnings.append({"code": "AI_RECOMMENDATION_FALLBACK",
                                  "message": "AI 추천을 완료하지 못해 가까운 주변 장소로 대체했습니다." if candidates
                                  else "AI 추천을 완료하지 못해 축제와 필수 일정만 구성했습니다.", "stopIds": []})
@@ -286,6 +287,8 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
             days[0]["stops"].append(stop(type="PLACE", placeId=recommended_place.id, name=recommended_place.name,
                                          required=False, recommendationReason=reason,
                                          sourceUrl=recommended_place.source_url))
+            warnings.append({"code": "AI_RECOMMENDATION_FALLBACK", "message": "AI 추천 대신 가까운 장소를 넣었습니다.",
+                             "stopIds": [days[0]["stops"][-1]["id"]]})
         else:
             warnings.append({"code": "NO_CANDIDATES",
                              "message": "필수 장소를 제외한 축제장 반경 5km 안에 추천 후보가 없습니다.", "stopIds": []})
@@ -322,6 +325,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
                 scheduled = schedule_car_trip(days, place_by_id, origin_location, (lat, lng), transit_key,
                                               warnings, conflicts, lodging_link, route_loader=transit_session.schedule_loader)
             except ApiError as exc:
+                log.warning('transit route failed, saving plan without schedule: %s', exc.code)
                 warnings.append({'code': exc.code, 'message': exc.message, 'stopIds': []})
             for warning in warnings:
                 warning['message'] = warning['message'].replace('자동차', '대중교통')
@@ -330,11 +334,19 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
     if is_car and not link_overnight:
         # 2일차에는 확인되지 않은 숙소 대신 최초 출발지를 표시하지 않는다.
         if len(days) == 1 or not overnight_car or not route_key or any(s["type"] == "FESTIVAL" for s in first_day["stops"]):
-            add_initial_route(inp, days[:1] if overnight_car else days, venue, warnings, route_key)
+            try:
+                add_initial_route(inp, days[:1] if overnight_car else days, venue, warnings, route_key)
+            except ApiError as exc:
+                log.warning("car route failed, saving plan without route: %s", exc.code)
+                warnings.append({"code": "ROUTE_UNAVAILABLE", "message": exc.message, "stopIds": []})
     if is_car and (link_overnight or (len(days) == 1 and first_day["legs"] and not conflicts)):
         place_by_id = {s["placeId"]: db.get(Place, s["placeId"]) for s in first_day["stops"] if s["type"] == "PLACE"}
-        scheduled = schedule_car_trip(days, place_by_id, origin_location, (lat, lng), route_key,
-                                      warnings, conflicts, lodging_link)
+        try:
+            scheduled = schedule_car_trip(days, place_by_id, origin_location, (lat, lng), route_key,
+                                          warnings, conflicts, lodging_link)
+        except ApiError as exc:
+            log.warning("car schedule route failed, saving plan without schedule: %s", exc.code)
+            warnings.append({"code": "ROUTE_UNAVAILABLE", "message": exc.message, "stopIds": []})
     if scheduled:
         warnings = [w for w in warnings if w["code"] != "ROUTE_PARTIAL"]
     else:

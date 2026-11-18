@@ -111,11 +111,13 @@ def recommend_places(api_key: str, model: str, trip: dict, festival: Festival,
         try:
             candidate = response.json()["candidates"][0]
             if candidate["finishReason"] != "STOP":
+                log.warning("Gemini output rejected: finishReason=%s", candidate["finishReason"])
                 continue
             parts = candidate["content"]["parts"]
             content = "".join(part.get("text", "") for part in parts if not part.get("thought"))
             result = RecommendationResult.model_validate_json(content)
-        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
+            log.warning("Gemini output rejected: parse failure %s", type(exc).__name__)
             continue
 
         ids = [item.placeId for item in [*result.recommendations, *result.conflicts]]
@@ -128,5 +130,9 @@ def recommend_places(api_key: str, model: str, trip: dict, festival: Festival,
         ):
             result.recommendations.sort(key=lambda item: item.priority)
             return result
+        log.warning("Gemini output rejected: ids=%s unique=%s unknown=%s missing_required=%s bad_ranks=%s",
+                    len(ids), len(used_ids), len(used_ids - candidate_ids), len(required_ids - used_ids),
+                    priorities != list(range(1, len(priorities) + 1)))
 
+    log.warning("Gemini output invalid after retries: LLM_OUTPUT_INVALID")
     raise ApiError(503, "LLM_OUTPUT_INVALID", "장소 추천 결과를 확인할 수 없습니다. 다시 시도해 주세요.", retryable=True)
