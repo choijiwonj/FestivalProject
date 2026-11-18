@@ -25,6 +25,14 @@ export const BUDGET_STATUS: Record<string, string> = {
   NOT_SET: "예산 미입력", WITHIN: "예산 안", OVER: "예산 초과", UNKNOWN: "미확인 비용 있음",
 };
 
+// 400 INVALID_REQUEST의 fields[].path 첫 마디 → 화면 이름
+export const FIELDS: Record<string, string> = {
+  startDate: "시작일", endDate: "종료일", origin: "출발지", transport: "교통수단", travelers: "인원",
+  budgetKrw: "예산", interests: "관심사", style: "여행 스타일", lodgingPreference: "숙박 선호",
+  requiredProgramIds: "꼭 볼 프로그램", requiredPlaceIds: "꼭 갈 장소", additionalRequests: "추가 요청",
+  q: "검색어", cursor: "페이지 정보",
+};
+
 export function time(iso: string | null) {
   return iso ? iso.slice(11, 16) : "시간 미정";
 }
