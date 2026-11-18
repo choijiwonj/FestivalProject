@@ -341,9 +341,12 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
                 warnings.append({"code": "ROUTE_UNAVAILABLE", "message": exc.message, "stopIds": []})
     if is_car and (link_overnight or (len(days) == 1 and first_day["legs"] and not conflicts)):
         place_by_id = {s["placeId"]: db.get(Place, s["placeId"]) for s in first_day["stops"] if s["type"] == "PLACE"}
+        # 경로 조회가 중간에 실패하면 일부만 계산된 경고·충돌이 남지 않게 복사본에 쌓고 성공 시에만 반영한다.
+        car_warnings, car_conflicts = warnings[:], conflicts[:]
         try:
             scheduled = schedule_car_trip(days, place_by_id, origin_location, (lat, lng), route_key,
-                                          warnings, conflicts, lodging_link)
+                                          car_warnings, car_conflicts, lodging_link)
+            warnings[:], conflicts[:] = car_warnings, car_conflicts
         except ApiError as exc:
             log.warning("car schedule route failed, saving plan without schedule: %s", exc.code)
             warnings.append({"code": "ROUTE_UNAVAILABLE", "message": exc.message, "stopIds": []})
@@ -410,9 +413,13 @@ def make_budget(inp: dict, days: list) -> dict:
 def run_generation(job_id: str) -> None:
     with SessionLocal() as db:
         try:
-            job = db.get(Job, job_id)
-            job.status, job.stage, job.updated_at = "RUNNING", "SCHEDULING", now()
+            # 시간 초과로 이미 실패 처리된 작업은 다시 시작하지 않는다(QUEUED일 때만 시작).
+            if not db.query(Job).filter(Job.id == job_id, Job.status == "QUEUED").update(
+                    {"status": "RUNNING", "stage": "SCHEDULING", "updated_at": now()}):
+                db.rollback()
+                return
             db.commit()
+            job = db.get(Job, job_id)
 
             plan = build_plan(db, db.get(TripRequest, job.request_id))
             db.add(plan)

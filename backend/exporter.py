@@ -289,10 +289,14 @@ def run_export(export_id: str) -> None:
             record = db.get(PlanExport, export_id)
             if record is None:
                 return
-            job = db.get(Job, record.job_id)
-            record.status = job.status = "RUNNING"
-            job.stage = "EXPORTING"
-            record.updated_at = job.updated_at = now()
+            # 시간 초과로 이미 실패 처리된 작업은 다시 시작하지 않는다(QUEUED일 때만 시작).
+            started = now()
+            if db.query(PlanExport).filter(PlanExport.id == export_id, PlanExport.status == "QUEUED").update(
+                    {"status": "RUNNING", "updated_at": started}) == 0:
+                db.rollback()
+                return
+            db.query(Job).filter(Job.id == record.job_id).update(
+                {"status": "RUNNING", "stage": "EXPORTING", "updated_at": started})
             db.commit()
             content, content_type, filename = create_export_file(record)
             # 시간 초과로 이미 실패 처리됐으면 덮어쓰지 않는다(RUNNING일 때만 완료로 바꾼다).
@@ -308,6 +312,7 @@ def run_export(export_id: str) -> None:
                 db.rollback()
             return
         except ApiError as exc:
+            log.warning("export failed: %s %s", export_id, exc.code)
             error = {"code": exc.code, "message": exc.message, "retryable": exc.retryable}
         except Exception:
             log.exception("export failed: %s", export_id)
