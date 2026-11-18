@@ -338,8 +338,7 @@ def test_regeneration_preserves_parent_and_replays(client):
         assert anon.post(url, json=body, headers=headers).status_code in (401, 403)
 
 
-def test_plan_exports_pdf_png_zip_and_idempotency(client, monkeypatch, tmp_path):
-    monkeypatch.setenv("EXPORT_STORAGE_DIR", str(tmp_path))
+def test_plan_exports_pdf_png_zip_and_idempotency(client, monkeypatch):
     plan = generated_plan(client)
     url = f"/api/v1/trip-plans/{plan['id']}/exports"
 
@@ -654,7 +653,6 @@ def test_missing_hotel_arrival_leg_keeps_known_second_day_routes(client, monkeyp
 
 def test_export_download_is_served_from_db_without_storage_dir(client, monkeypatch):
     from db import PlanExport
-    monkeypatch.delenv("EXPORT_STORAGE_DIR", raising=False)
     plan = generated_plan(client)
     accepted = client.post(f"/api/v1/trip-plans/{plan['id']}/exports", json={"format": "PDF", "version": plan["version"]},
                            headers={"Idempotency-Key": str(uuid.uuid4())}).json()["data"]
