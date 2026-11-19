@@ -76,9 +76,9 @@ class Festival(Base):
     __tablename__ = "festivals"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     name: Mapped[str]
-    region: Mapped[str] = mapped_column(String(20))
-    start_date: Mapped[date]
-    end_date: Mapped[date]
+    region: Mapped[str] = mapped_column(String(20), index=True)
+    start_date: Mapped[date] = mapped_column(index=True)
+    end_date: Mapped[date] = mapped_column(index=True)
     status: Mapped[str] = mapped_column(String(20), default="SCHEDULED")
     thumbnail_url: Mapped[str | None]
     tags: Mapped[list] = mapped_column(default=list)
@@ -98,7 +98,7 @@ class Festival(Base):
 class Program(Base):
     __tablename__ = "festival_programs"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    festival_id: Mapped[str] = mapped_column(ForeignKey("festivals.id"))
+    festival_id: Mapped[str] = mapped_column(ForeignKey("festivals.id"), index=True)
     name: Mapped[str]
     start_at: Mapped[datetime | None]  # UTC로 저장
     end_at: Mapped[datetime | None]
@@ -112,7 +112,7 @@ class Place(Base):
     __tablename__ = "places"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     name: Mapped[str]
-    category: Mapped[str] = mapped_column(String(20))
+    category: Mapped[str] = mapped_column(String(20), index=True)
     lat: Mapped[float] = mapped_column(Float)
     lng: Mapped[float] = mapped_column(Float)
     address: Mapped[str]

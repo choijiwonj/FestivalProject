@@ -1,0 +1,57 @@
+{
+  "festivals": [
+    {
+      "id": "fst_sample_01",
+      "name": "(가상) 은하수 별빛축제",
+      "region": "CHEONGYANG",
+      "start_date": "2027-08-20",
+      "end_date": "2027-08-22",
+      "tags": ["NATURE", "EXPERIENCE"],
+      "description": "importer 형식 확인용 가상 축제입니다. 실제 행사가 아닙니다.",
+      "venue": {"label": "(가상) 별빛 잔디광장", "lat": 36.459, "lng": 126.802},
+      "opening_hours": "18:00~23:00",
+      "admission": {"amountKrw": 3000, "basis": "PERSON"},
+      "source_url": "https://example.com/sample-festival",
+      "last_verified_at": "2026-11-19T10:00:00+09:00"
+    }
+  ],
+  "programs": [
+    {
+      "id": "pr_sample_01",
+      "festival_id": "fst_sample_01",
+      "name": "(가상) 별자리 해설",
+      "start_at": "2027-08-20T20:00:00+09:00",
+      "end_at": "2027-08-20T21:00:00+09:00",
+      "reservation_required": true,
+      "cost_krw": 0
+    },
+    {
+      "id": "pr_sample_02",
+      "festival_id": "fst_sample_01",
+      "name": "(가상) 시간 미정 망원경 체험"
+    }
+  ],
+  "places": [
+    {
+      "id": "pl_sample_01",
+      "name": "(가상) 은하 카페",
+      "category": "CAFE",
+      "lat": 36.462,
+      "lng": 126.805,
+      "address": "충남 청양군 가상로 1",
+      "opening_hours": {"sat": [{"open": "10:00", "close": "22:00"}], "sun": [{"open": "10:00", "close": "20:00"}]},
+      "closed_dates": ["2027-08-21"],
+      "stay_minutes_estimate": 45
+    },
+    {
+      "id": "pl_sample_02",
+      "name": "(가상) 별빛 게스트하우스",
+      "category": "LODGING",
+      "lat": 36.455,
+      "lng": 126.799,
+      "address": "충남 청양군 가상로 2",
+      "tags": ["GUESTHOUSE"],
+      "price": {"amountKrw": 60000, "basis": "ROOM"}
+    }
+  ]
+}
