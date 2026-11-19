@@ -56,6 +56,13 @@ class Session(Base):
     user: Mapped[User] = relationship(lazy="joined")
 
 
+class LocalCredential(Base):
+    __tablename__ = "local_credentials"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
 class UserSettings(Base):
     __tablename__ = "user_settings"
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
@@ -76,9 +83,9 @@ class Festival(Base):
     __tablename__ = "festivals"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     name: Mapped[str]
-    region: Mapped[str] = mapped_column(String(20))
-    start_date: Mapped[date]
-    end_date: Mapped[date]
+    region: Mapped[str] = mapped_column(String(20), index=True)
+    start_date: Mapped[date] = mapped_column(index=True)
+    end_date: Mapped[date] = mapped_column(index=True)
     status: Mapped[str] = mapped_column(String(20), default="SCHEDULED")
     thumbnail_url: Mapped[str | None]
     tags: Mapped[list] = mapped_column(default=list)
@@ -98,7 +105,7 @@ class Festival(Base):
 class Program(Base):
     __tablename__ = "festival_programs"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    festival_id: Mapped[str] = mapped_column(ForeignKey("festivals.id"))
+    festival_id: Mapped[str] = mapped_column(ForeignKey("festivals.id"), index=True)
     name: Mapped[str]
     start_at: Mapped[datetime | None]  # UTC로 저장
     end_at: Mapped[datetime | None]
@@ -112,7 +119,7 @@ class Place(Base):
     __tablename__ = "places"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     name: Mapped[str]
-    category: Mapped[str] = mapped_column(String(20))
+    category: Mapped[str] = mapped_column(String(20), index=True)
     lat: Mapped[float] = mapped_column(Float)
     lng: Mapped[float] = mapped_column(Float)
     address: Mapped[str]
@@ -192,3 +199,51 @@ class PlanExport(Base):
     body_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
+
+
+class BoardPost(Base):
+    __tablename__ = "board_posts"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    festival_id: Mapped[str | None] = mapped_column(ForeignKey("festivals.id"))
+    festival_name: Mapped[str] = mapped_column(String(200))
+    region: Mapped[str] = mapped_column(String(20))
+    author_name: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    visited_on: Mapped[date]
+    is_sample: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime]
+
+
+class Upload(Base):
+    __tablename__ = "uploads"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    content_type: Mapped[str] = mapped_column(String(20))
+    size: Mapped[int]
+    # ponytail: 사진도 DB 행에 보관(PlanExport와 같은 이유). 사진이 많아지면 객체 저장소로 옮긴다.
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    created_at: Mapped[datetime]
+
+
+class Post(Base):
+    __tablename__ = "posts"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    festival_id: Mapped[str] = mapped_column(ForeignKey("festivals.id"))
+    body: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(String(200))
+    visited_on: Mapped[date | None]
+    cover_upload_id: Mapped[str | None] = mapped_column(ForeignKey("uploads.id"))
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    user: Mapped[User] = relationship(lazy="joined")
+    festival: Mapped[Festival] = relationship(lazy="joined")
+
+
+class RateLimit(Base):
+    """고정 구간 요청 수. 오래된 구간은 maintenance.cleanup이 지운다."""
+    __tablename__ = "rate_limits"
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)  # "이름:IP" 또는 "이름:사용자ID"
+    window_start: Mapped[datetime] = mapped_column(primary_key=True)
+    count: Mapped[int] = mapped_column(default=0)

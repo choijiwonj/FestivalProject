@@ -16,6 +16,9 @@ from routers.catalog import WINDOW_DAYS, Interest
 from routing import get_car_route
 from scheduling import schedule_car_trip
 from transit import TransitRouteSession
+from simulation_data import (enabled as simulation_enabled, place_for_plan, festival_for_plan,
+                             enrich_stops, lodging_cost)
+from budgeting import calculate_budget
 
 log = logging.getLogger(__name__)
 MAX_TRIP_DAYS = 2  # MVP 제안값(정의서 9장 미확정). 확정되면 여기만 바꾼다.
@@ -194,15 +197,15 @@ def add_initial_route(inp: dict, days: list[dict], venue: dict, warnings: list[d
 def build_plan(db: DB, req: TripRequest) -> TripPlan:
     inp = dict(req.input)
     parent_plan_id = inp.pop("_parentPlanId", None)
-    fest = db.get(Festival, inp["primaryFestivalId"])
+    fest = festival_for_plan(db.get(Festival, inp["primaryFestivalId"]))
     start, end = date.fromisoformat(inp["startDate"]), date.fromisoformat(inp["endDate"])
     programs = sorted((db.get(Program, pid) for pid in inp["requiredProgramIds"]), key=lambda p: iso(p.start_at))
-    places = [db.get(Place, pid) for pid in inp["requiredPlaceIds"]]
+    places = [place_for_plan(db.get(Place, pid)) for pid in inp["requiredPlaceIds"]]
     admission = (fest.admission or {}).get("amountKrw")
     venue = fest.venue or {}
     lat, lng = venue.get("lat"), venue.get("lng")
     overnight_car = (end - start).days == 1
-    lodging = find_overnight_lodging(db, inp, venue) if overnight_car else None
+    lodging = place_for_plan(find_overnight_lodging(db, inp, venue)) if overnight_car else None
 
     days, n = [], 0
 
@@ -219,7 +222,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
         stops = []
         if fest.start_date <= d <= fest.end_date:
             stops.append(stop(type="FESTIVAL", festivalId=fest.id, name=fest.name, recommendationReason="선택한 주 축제",
-                              costKrw=admission, costStatus="VERIFIED" if admission is not None else "UNKNOWN",
+                              costKrw=admission, costStatus=(fest.admission or {}).get("status", "VERIFIED") if admission is not None else "UNKNOWN",
                               sourceUrl=fest.source_url))
         for p in programs:
             if iso(p.start_at)[:10] == d.isoformat():
@@ -246,7 +249,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
         warnings.append({"code": "FESTIVAL_LOCATION_UNKNOWN",
                          "message": "축제장 좌표를 확인할 수 없어 주변 장소를 추천하지 못했습니다.", "stopIds": []})
     else:
-        candidates = nearby_recommendation_candidates(db, lat, lng, inp["requiredPlaceIds"])
+        candidates = [place_for_plan(place) for place in nearby_recommendation_candidates(db, lat, lng, inp["requiredPlaceIds"])]
         if api_key and (candidates or places):
             model = os.getenv("GEMINI_MODEL", "").strip() or DEFAULT_MODEL
             candidates = candidates[:MAX_CANDIDATES - len(places)]
@@ -293,13 +296,14 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
             warnings.append({"code": "NO_CANDIDATES",
                              "message": "필수 장소를 제외한 축제장 반경 5km 안에 추천 후보가 없습니다.", "stopIds": []})
 
+    enrich_stops(db, days, fest)
     route_key = os.getenv("KAKAO_MOBILITY_REST_API_KEY", "").strip()
     first_day = days[0]
     origin = inp["origin"]
     origin_location = (origin.get("lat"), origin.get("lng"))
     lodging_link = None
     if lodging is not None:
-        lodging_details = {"type": "LODGING", "placeId": lodging.id, "name": lodging.name, "sourceUrl": lodging.source_url}
+        lodging_details = {"type": "LODGING", "placeId": lodging.id, "name": lodging.name, "sourceUrl": lodging.source_url, **lodging_cost(lodging)}
         lodging_link = ((lodging.lat, lodging.lng),
                         stop(**lodging_details, recommendationReason="첫날 숙소 도착"),
                         stop(**lodging_details, recommendationReason="둘째 날 숙소 출발"))
@@ -319,7 +323,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
         if not transit_key:
             warnings.append({'code': 'ROUTE_UNAVAILABLE', 'message': 'ODsay 키가 설정되지 않았습니다.', 'stopIds': []})
         elif None not in (*origin_location, lat, lng) and not conflicts and (len(days) == 1 or lodging_link):
-            place_by_id = {s['placeId']: db.get(Place, s['placeId']) for s in first_day['stops'] if s['type'] == 'PLACE'}
+            place_by_id = {s['placeId']: place_for_plan(db.get(Place, s['placeId'])) for s in first_day['stops'] if s['type'] == 'PLACE'}
             transit_session = TransitRouteSession(transit_key)
             try:
                 scheduled = schedule_car_trip(days, place_by_id, origin_location, (lat, lng), transit_key,
@@ -340,7 +344,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
                 log.warning("car route failed, saving plan without route: %s", exc.code)
                 warnings.append({"code": "ROUTE_UNAVAILABLE", "message": exc.message, "stopIds": []})
     if is_car and (link_overnight or (len(days) == 1 and first_day["legs"] and not conflicts)):
-        place_by_id = {s["placeId"]: db.get(Place, s["placeId"]) for s in first_day["stops"] if s["type"] == "PLACE"}
+        place_by_id = {s["placeId"]: place_for_plan(db.get(Place, s["placeId"])) for s in first_day["stops"] if s["type"] == "PLACE"}
         # 경로 조회가 중간에 실패하면 일부만 계산된 경고·충돌이 남지 않게 복사본에 쌓고 성공 시에만 반영한다.
         car_warnings, car_conflicts = warnings[:], conflicts[:]
         try:
@@ -363,6 +367,8 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
                              "stopIds": unscheduled_place_ids})
 
     budget = make_budget(inp, days)
+    if simulation_enabled():
+        budget["dataMode"] = "SIMULATION"
     if budget["unknownItemCount"]:
         warnings.append({"code": "COST_UNKNOWN", "message": "확인하지 못한 비용이 있습니다.", "stopIds": []})
     nights = len(days) - 1
@@ -382,30 +388,7 @@ def find_conflicts(programs: list) -> list:
 
 
 def make_budget(inp: dict, days: list) -> dict:
-    items = [{"category": "TRANSPORT", "amountKrw": None, "basis": "GROUP", "quantity": 1, "status": "UNKNOWN"}]
-    if len(days) > 1 and inp["lodgingPreference"] != "SELF_ARRANGED":
-        items.append({"category": "LODGING", "amountKrw": None, "basis": "ROOM", "quantity": len(days) - 1,
-                      "status": "UNKNOWN"})
-    for day in days:
-        for s in day["stops"]:
-            if s["type"] in ("FESTIVAL", "PROGRAM"):
-                known = s["costStatus"] == "VERIFIED"
-                items.append({"category": "ADMISSION", "amountKrw": s["costKrw"] * inp["travelers"] if known else None,
-                              "basis": "PERSON", "quantity": inp["travelers"], "status": s["costStatus"]})
-    known_total = sum(i["amountKrw"] for i in items if i["amountKrw"] is not None)
-    unknown = sum(1 for i in items if i["amountKrw"] is None)
-    limit = inp["budgetKrw"]
-    if limit is None:
-        status = "NOT_SET"
-    elif known_total > limit:
-        status = "OVER"
-    elif unknown:
-        status = "UNKNOWN"
-    else:
-        status = "WITHIN"
-    return {"currency": "KRW", "scope": "GROUP_TOTAL", "limitKrw": limit, "knownTotalKrw": known_total,
-            "estimatedTotalKrw": None, "unknownItemCount": unknown, "status": status, "items": items,
-            "lodgingIncluded": inp["lodgingPreference"] != "SELF_ARRANGED"}
+    return calculate_budget(inp, days)
 
 
 # ponytail: core.defer로 실행. 로컬은 BackgroundTasks, Vercel은 요청 안에서 동기 실행이라 생성이

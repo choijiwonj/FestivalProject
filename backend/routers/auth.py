@@ -9,15 +9,18 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DB
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from core import (COOKIE_SECURE, DEV_LOGIN, KAKAO_CLIENT_SECRET, KAKAO_REDIRECT_URI, KAKAO_REST_API_KEY,
-                  SESSION_COOKIE, SESSION_DAYS, ApiError, check_csrf, create_session, current_session, new_id, now, ok)
-from db import User, UserSettings, get_db
+                  SESSION_COOKIE, SESSION_DAYS, ApiError, check_csrf, create_session, current_session, hash_token, limit_by_ip, new_id, now, ok)
+from db import LocalCredential, Session as LoginSession, User, UserSettings, get_db
+from password_auth import DUMMY_HASH, check_login_origin, login_throttle, normalize_username, verify_password
 
 router = APIRouter()
 PROVIDERS = {"kakao"} | ({"dev"} if DEV_LOGIN else set())
 STATE_COOKIE = "oauth_state"
 log = logging.getLogger(__name__)
+limit_login = Depends(limit_by_ip("auth", 20, 60))  # 로그인 시작·콜백 합산, IP당 분당 20회
 
 
 def user_out(u: User) -> dict:
@@ -69,7 +72,37 @@ def session(request: Request, db: DB = Depends(get_db)):
     return ok({"user": user_out(s.user) if s else None, "csrfToken": s.csrf_token if s else None})
 
 
-@router.get("/auth/login/{provider}")
+class LocalLoginInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=3, max_length=50)
+    password: SecretStr = Field(min_length=8, max_length=128)
+
+
+@router.post("/auth/login", dependencies=[limit_login])
+def password_login(body: LocalLoginInput, request: Request, db: DB = Depends(get_db)):
+    check_login_origin(request)
+    login_throttle.check(request.client.host if request.client else "unknown")
+    try:
+        username = normalize_username(body.username)
+    except ValueError:
+        username = ""
+    user = db.scalar(select(User).where(User.provider == "local", User.provider_user_id == username))
+    credential = db.get(LocalCredential, user.id) if user else None
+    matches = verify_password(body.password.get_secret_value(), credential.password_hash if credential else DUMMY_HASH)
+    if not user or not credential or not matches or user.status != "ACTIVE":
+        raise ApiError(401, "INVALID_CREDENTIALS", "아이디 또는 비밀번호를 확인해 주세요.")
+    previous = current_session(request, db)
+    if previous:
+        db.delete(previous)
+    token = create_session(db, user)
+    session = db.get(LoginSession, hash_token(token))
+    resp = ok({"user": user_out(user), "csrfToken": session.csrf_token})
+    resp.set_cookie(SESSION_COOKIE, token, max_age=SESSION_DAYS * 86400,
+                    httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/")
+    return resp
+
+
+@router.get("/auth/login/{provider}", dependencies=[limit_login])
 def login(provider: str, returnTo: str | None = None, db: DB = Depends(get_db)):
     if provider not in PROVIDERS:
         raise ApiError(404, "PROVIDER_NOT_SUPPORTED", "지원하지 않는 로그인 방식입니다.")
@@ -88,7 +121,7 @@ def login(provider: str, returnTo: str | None = None, db: DB = Depends(get_db)):
     return resp
 
 
-@router.get("/auth/callback/{provider}")
+@router.get("/auth/callback/{provider}", dependencies=[limit_login])
 def callback(provider: str, request: Request, code: str | None = None, state: str | None = None,
              db: DB = Depends(get_db)):
     try:

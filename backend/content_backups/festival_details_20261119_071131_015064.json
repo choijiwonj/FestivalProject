@@ -1,0 +1,47 @@
+[
+  {
+    "id": "fst_cn_113_2026",
+    "description": "(32158) 충남 태안군 남면 마검포길 200에 위치한 태안 빛축제. 세부 이용 정보는 공식 출처를 확인해 주세요.",
+    "venue": {
+      "label": "(32158) 충남 태안군 남면 마검포길 200",
+      "lat": 36.61678033,
+      "lng": 126.3022747
+    },
+    "opening_hours": null,
+    "admission": null,
+    "directions": null,
+    "shuttle": null,
+    "source_url": "https://tour.chungnam.go.kr/prog/fstvl/kor/sub02_02_02/view.do?fstvlNo=113",
+    "last_verified_at": "2026-11-19 01:17:25.869120"
+  },
+  {
+    "id": "fst_cn_182_2026",
+    "description": "(33489) 충남 보령시 고잠2길 55에 위치한 대천겨울바다사랑축제. 세부 이용 정보는 공식 출처를 확인해 주세요.",
+    "venue": {
+      "label": "대천해수욕장 보령머드테마파크 일원",
+      "lat": 36.3150621375071,
+      "lng": 126.512997036688
+    },
+    "opening_hours": null,
+    "admission": null,
+    "directions": null,
+    "shuttle": null,
+    "source_url": "https://tour.chungnam.go.kr/prog/fstvl/kor/sub02_02_02/view.do?fstvlNo=182",
+    "last_verified_at": "2026-11-19 01:17:36.163482"
+  },
+  {
+    "id": "fst_cn_273_2027",
+    "description": "(32993) 충남 논산시 관촉동 337-4에 위치한 2027 논산세계딸기산업엑스포. 세부 이용 정보는 공식 출처를 확인해 주세요.",
+    "venue": {
+      "label": "논산시민가족공원, 시민운동장, 딸기향농촌테마공원 일원",
+      "lat": 36.1943201511175,
+      "lng": 127.105702799899
+    },
+    "opening_hours": null,
+    "admission": null,
+    "directions": null,
+    "shuttle": null,
+    "source_url": "https://tour.chungnam.go.kr/prog/fstvl/kor/sub02_02_02/view.do?fstvlNo=273",
+    "last_verified_at": "2026-11-19 01:17:56.711693"
+  }
+]

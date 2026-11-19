@@ -157,7 +157,7 @@ def render_pdf(snapshot: dict, dates: list[str], output: BytesIO, generated_at: 
     story.append(Paragraph("예산", heading))
     budget = snapshot.get("budget", {})
     story.append(Paragraph(
-        f"확인된 비용 {money(budget.get('knownTotalKrw'))} · 미확인 {budget.get('unknownItemCount', 0)}건"
+        (f"예상 총비용 {money(budget.get('estimatedTotalKrw'))}" if budget.get("estimatedTotalKrw") is not None else f"확인된 비용 {money(budget.get('knownTotalKrw'))}") + f" · 미확인 {budget.get('unknownItemCount', 0)}건"
         + (f" · 입력 예산 {money(budget.get('limitKrw'))}" if budget.get("limitKrw") is not None else ""), body))
     if snapshot.get("warnings"):
         story.append(Paragraph("확인할 사항", heading))
@@ -248,7 +248,7 @@ def render_day_png(snapshot: dict, day: dict, day_number: int, output: BytesIO, 
     budget = snapshot.get("budget", {})
     draw.text((margin, y), "예산", font=heading_font, fill="#3F2B68")
     y += 48
-    budget_text = (f"확인된 비용 {money(budget.get('knownTotalKrw'))} · 미확인 {budget.get('unknownItemCount', 0)}건"
+    budget_text = ((f"예상 총비용 {money(budget.get('estimatedTotalKrw'))}" if budget.get("estimatedTotalKrw") is not None else f"확인된 비용 {money(budget.get('knownTotalKrw'))}") + f" · 미확인 {budget.get('unknownItemCount', 0)}건"
                    + (f" · 입력 예산 {money(budget.get('limitKrw'))}" if budget.get("limitKrw") is not None else ""))
     draw.text((margin + 15, y), budget_text, font=small_font, fill="#37474F")
     y += 36
@@ -319,6 +319,8 @@ def run_export(export_id: str) -> None:
             error = {"code": "EXPORT_FAILED", "message": "파일을 만들지 못했습니다.", "retryable": True}
         db.rollback()
         record = db.get(PlanExport, export_id)
+        if record is None:  # 내보내는 중에 계획·계정이 지워졌다
+            return
         job = db.get(Job, record.job_id)
         record.status = job.status = "FAILED"
         record.error = job.error = error

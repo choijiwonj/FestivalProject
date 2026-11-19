@@ -5,11 +5,12 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session as DB
 
 from core import KAKAO_REST_API_KEY, KST, ApiError, distance_m, field, iso, ok, paginate, require_user, sign_location
 from db import Festival, Place, Program, User, get_db
+from festival_content import detail_extras
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -26,11 +27,11 @@ WINDOW_DAYS = 2  # B02: 축제 전후 2일
 
 def festival_summary(f: Festival) -> dict:
     return {"id": f.id, "name": f.name, "region": f.region, "startDate": f.start_date, "endDate": f.end_date,
-            "thumbnailUrl": f.thumbnail_url, "tags": f.tags, "status": f.status}
+            "thumbnailUrl": f.thumbnail_url, "tags": f.tags, "status": f.status, "venue": f.venue}
 
 
 def festival_detail(f: Festival) -> dict:
-    return {**festival_summary(f), "description": f.description, "venue": f.venue, "openingHours": f.opening_hours,
+    return {**festival_summary(f), **detail_extras(f.id), "description": f.description, "venue": f.venue, "openingHours": f.opening_hours,
             "admission": f.admission, "booths": f.booths, "lineup": f.lineup, "shuttle": f.shuttle,
             "directions": f.directions, "sourceUrl": f.source_url, "lastVerifiedAt": iso(f.last_verified_at),
             "dateSelection": {"min": f.start_date - timedelta(days=WINDOW_DAYS),
@@ -58,9 +59,26 @@ def today_kst() -> date:
     return datetime.now(KST).date()
 
 
-# ponytail: 조건 일부는 메모리에서 거른다(충남 축제 수백 건 규모). 데이터가 커지면 SQL 조건·인덱스로 옮긴다.
+def parse_bbox(bbox: str, max_width_m: int) -> tuple[float, float, float, float]:
+    try:
+        west, south, east, north = (float(v) for v in bbox.split(","))
+    except ValueError:
+        raise ApiError(400, "INVALID_BBOX", "bbox 형식은 west,south,east,north 입니다.", field("bbox", "format"))
+    if west >= east or south >= north or distance_m(south, west, south, east) > max_width_m:
+        raise ApiError(400, "INVALID_BBOX", f"조회 범위가 올바르지 않습니다(최대 폭 {max_width_m // 1000}km).",
+                       field("bbox", "range"))
+    return west, south, east, north
+
+
+def in_bbox(lat, lng, box: tuple[float, float, float, float]) -> bool:
+    west, south, east, north = box
+    return lat is not None and lng is not None and west <= lng <= east and south <= lat <= north
+
+
+# ponytail: 관심사(tags JSON 배열)와 bbox(venue JSON 좌표)는 SQLite·Postgres 공통 SQL이 없어 메모리에서 거른다.
+# 축제가 수천 건을 넘으면 venue_lat/venue_lng 컬럼 + 인덱스, tags는 JSONB @> 로 옮긴다.
 def search_festivals(db: DB, q: str | None, from_: date | None, to: date | None, region: str | None,
-                     interests: list[str]) -> list[Festival]:
+                     interests: list[str], bbox: tuple[float, float, float, float] | None = None) -> list[Festival]:
     if from_ and to and from_ > to:
         raise ApiError(400, "INVALID_DATE_RANGE", "시작일이 종료일보다 늦습니다.", field("from", "after_to"))
     stmt = select(Festival)
@@ -72,12 +90,15 @@ def search_festivals(db: DB, q: str | None, from_: date | None, to: date | None,
         stmt = stmt.where(Festival.end_date >= from_)
     if to:
         stmt = stmt.where(Festival.start_date <= to)
-    rows = list(db.scalars(stmt))
     q = (q or "").strip()
     if q:
-        rows = [f for f in rows if q in f.name or q in REGION_NAMES.get(f.region, "")]
+        codes = [code for code, name in REGION_NAMES.items() if q in name]
+        stmt = stmt.where(or_(Festival.name.contains(q, autoescape=True), Festival.region.in_(codes)))
+    rows = list(db.scalars(stmt))
     if interests:
         rows = [f for f in rows if set(f.tags) & set(interests)]
+    if bbox:
+        rows = [f for f in rows if f.venue and in_bbox(f.venue.get("lat"), f.venue.get("lng"), bbox)]
     return rows
 
 
@@ -104,9 +125,11 @@ def recommendations(from_: date | None = Query(None, alias="from"), to: date | N
 @router.get("/festivals")
 def festivals(q: str | None = Query(None, max_length=100), from_: date | None = Query(None, alias="from"),
               to: date | None = None, region: Region | None = None, interests: list[Interest] = Query([]),
-              sort: Literal["START_DATE_ASC", "NAME_ASC"] = "START_DATE_ASC", cursor: str | None = None,
-              limit: int = Query(20, ge=1, le=50), db: DB = Depends(get_db)):
-    rows = search_festivals(db, q, from_, to, region, interests)
+              sort: Literal["START_DATE_ASC", "NAME_ASC"] = "START_DATE_ASC", bbox: str | None = None,
+              cursor: str | None = None, limit: int = Query(20, ge=1, le=50), db: DB = Depends(get_db)):
+    # 지도 마커용: venue 좌표가 bbox 안인 축제만. 충남 전체(약 150km)를 한 화면에 담도록 폭 300km까지 허용한다.
+    box = parse_bbox(bbox, 300000) if bbox is not None else None
+    rows = search_festivals(db, q, from_, to, region, interests, box)
     rows.sort(key=(lambda f: (f.start_date, f.id)) if sort == "START_DATE_ASC" else (lambda f: (f.name, f.id)))
     chunk, page = paginate(rows, cursor, limit)
     return ok([festival_summary(f) for f in chunk], page=page)
@@ -148,13 +171,8 @@ def places(q: str | None = Query(None, max_length=100), bbox: str | None = None,
     rows = list(db.scalars(stmt))
 
     if bbox is not None:
-        try:
-            west, south, east, north = (float(v) for v in bbox.split(","))
-        except ValueError:
-            raise ApiError(400, "INVALID_BBOX", "bbox 형식은 west,south,east,north 입니다.", field("bbox", "format"))
-        if west >= east or south >= north or distance_m(south, west, south, east) > 50000:
-            raise ApiError(400, "INVALID_BBOX", "조회 범위가 올바르지 않습니다(최대 폭 50km).", field("bbox", "range"))
-        hits = [(p, None) for p in rows if west <= p.lng <= east and south <= p.lat <= north]
+        box = parse_bbox(bbox, 50000)
+        hits = [(p, None) for p in rows if in_bbox(p.lat, p.lng, box)]
     else:
         if festivalId is not None:
             venue = get_festival(db, festivalId).venue

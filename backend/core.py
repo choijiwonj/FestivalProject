@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import secrets
@@ -13,10 +14,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DB
 
-from db import DATABASE_URL, Session, User, get_db
+from db import DATABASE_URL, RateLimit, Session, User, get_db
 
+log = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))  # 한국은 서머타임이 없어 고정 오프셋으로 충분
 LOCAL = DATABASE_URL.startswith("sqlite")  # SQLite면 로컬 개발·테스트, 아니면 배포로 본다
 if not LOCAL and not os.getenv("SECRET_KEY"):
@@ -169,3 +174,44 @@ def verify_location(location_id: str | None) -> dict | None:
         return None
     label, lat, lng = json.loads(base64.urlsafe_b64decode(payload.encode()))
     return {"locationId": location_id, "label": label, "lat": lat, "lng": lng}
+
+
+# ---- 요청 제한 ----
+# ponytail: DB 고정 구간 카운터(요청마다 쓰기 1번, 구간 경계에서 최대 2배 통과). 트래픽이 커지면 Redis/Upstash로 옮긴다.
+
+def client_ip(request: Request) -> str:
+    # Vercel은 x-forwarded-for 첫 값에 실제 클라이언트 IP를 넣는다.
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    return forwarded or (request.client.host if request.client else "unknown")
+
+
+def rate_limit(db: DB, key: str, limit: int, window_seconds: int) -> None:
+    start = datetime.fromtimestamp(int(now().timestamp()) // window_seconds * window_seconds, timezone.utc)
+    insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
+    stmt = insert(RateLimit).values(key=key[:200], window_start=start, count=1)
+    stmt = stmt.on_conflict_do_update(index_elements=["key", "window_start"], set_={"count": RateLimit.count + 1})
+    try:
+        count = db.scalar(stmt.returning(RateLimit.count))
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        log.exception("rate_limit failed key=%s", key)
+        raise ApiError(503, "SERVICE_UNAVAILABLE", "잠시 후 다시 시도해 주세요.", retryable=True) from None
+    if count > limit:
+        raise ApiError(429, "RATE_LIMITED", "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", retryable=True)
+
+
+def limit_by_ip(name: str, limit: int, window_seconds: int):
+    def dependency(request: Request, db: DB = Depends(get_db)) -> None:
+        rate_limit(db, f"{name}:{client_ip(request)}", limit, window_seconds)
+    return dependency
+
+
+def limit_by_user(name: str, limit: int, window_seconds: int, method: str, *path_suffixes: str):
+    """라우터 전체에 걸고 method+경로 끝이 맞는 요청만 로그인 사용자별로 센다(비로그인은 라우트가 401)."""
+    def dependency(request: Request, db: DB = Depends(get_db)) -> None:
+        if request.method != method or not request.url.path.endswith(path_suffixes):
+            return
+        if s := current_session(request, db):
+            rate_limit(db, f"{name}:{s.user_id}", limit, window_seconds)
+    return dependency

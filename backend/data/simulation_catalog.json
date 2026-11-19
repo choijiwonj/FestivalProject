@@ -1,0 +1,113 @@
+{
+  "description": "Service demonstration assumptions only. Never verified operating hours or live prices.",
+  "categories": {
+    "ATTRACTION": {
+      "open": "09:00",
+      "close": "18:00",
+      "stayMinutes": 90,
+      "amountKrw": 10000,
+      "basis": "PERSON"
+    },
+    "EXPERIENCE": {
+      "open": "09:00",
+      "close": "18:00",
+      "stayMinutes": 90,
+      "amountKrw": 15000,
+      "basis": "PERSON"
+    },
+    "RESTAURANT": {
+      "open": "11:00",
+      "close": "21:00",
+      "stayMinutes": 60,
+      "amountKrw": 15000,
+      "basis": "PERSON"
+    },
+    "CAFE": {
+      "open": "10:00",
+      "close": "21:00",
+      "stayMinutes": 50,
+      "amountKrw": 6500,
+      "basis": "PERSON"
+    },
+    "SHOP": {
+      "open": "10:00",
+      "close": "20:00",
+      "stayMinutes": 45,
+      "amountKrw": 0,
+      "basis": "PERSON"
+    },
+    "LODGING": {
+      "open": "00:00",
+      "close": "23:59",
+      "stayMinutes": 0,
+      "amountKrw": 80000,
+      "basis": "ROOM"
+    }
+  },
+  "placeOverrides": [
+    {
+      "nameContains": "쥬라기",
+      "open": "09:00",
+      "close": "18:00",
+      "stayMinutes": 90,
+      "amountKrw": 15000,
+      "category": "ATTRACTION"
+    },
+    {
+      "nameContains": "네이처월드",
+      "open": "10:00",
+      "close": "22:00",
+      "stayMinutes": 90,
+      "amountKrw": 10000,
+      "category": "ATTRACTION"
+    },
+    {
+      "nameContains": "청포대해수욕장",
+      "open": "09:00",
+      "close": "19:00",
+      "stayMinutes": 60,
+      "amountKrw": 0,
+      "category": "ATTRACTION"
+    },
+    {
+      "nameContains": "파파스테이크",
+      "open": "11:00",
+      "close": "21:00",
+      "stayMinutes": 60,
+      "amountKrw": 22000,
+      "category": "RESTAURANT"
+    },
+    {
+      "nameContains": "해수욕장",
+      "open": "09:00",
+      "close": "19:00",
+      "stayMinutes": 60,
+      "amountKrw": 0,
+      "category": "ATTRACTION"
+    },
+    {
+      "nameContains": "수목원",
+      "open": "09:00",
+      "close": "18:00",
+      "stayMinutes": 90,
+      "amountKrw": 10000,
+      "category": "ATTRACTION"
+    }
+  ],
+  "festival": {
+    "open": "10:00",
+    "close": "20:00",
+    "stayMinutes": 120,
+    "amountKrw": 12000
+  },
+  "budget": {
+    "mealKrwPerPerson": 12000,
+    "mealsPerDay": 2,
+    "carKrwPerKm": 200,
+    "parkingKrwPerDay": 5000,
+    "tollAllowanceKrwPerDay": 3000,
+    "carDailyAllowanceKrw": 30000,
+    "transitKrwPerPersonPerDay": 8000,
+    "roomCapacity": 2
+  }
+}

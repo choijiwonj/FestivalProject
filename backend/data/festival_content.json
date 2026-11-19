@@ -1,0 +1,86 @@
+{
+  "checkedOn": "2026-11-19",
+  "festivals": [
+    {
+      "id": "fst_cn_113_2026",
+      "name": "태안 빛축제",
+      "description": "태안 네이처월드에서 사계절 즐길 수 있는 야간 조명 축제입니다. LED 조형물과 테마 포토존을 따라 걸으며 밤의 정원을 감상할 수 있어 가족 나들이나 저녁 산책 코스로 어울립니다.\n\n연중 운영하지만 점등·입장 시간은 계절에 따라 달라집니다. 우천 시에는 야간 운영이 진행되지 않으므로 방문 당일 운영 공지를 확인해 주세요.",
+      "venueLabel": "네이처월드 · 충청남도 태안군 남면 마검포길 200",
+      "openingHours": "연중 운영 · 계절별 점등\n11~1월 입장 17:30~21:00 / 폐장 22:00\n2월 입장 18:00~21:30 / 폐장 22:30\n3월~6월 4일 입장 19:00~21:30 / 폐장 22:30\n6월 5일~8월 입장 19:30~22:00 / 폐장 23:00\n9월 1~29일 입장 19:00~21:30 / 폐장 22:30\n9월 30일~10월 입장 18:30~21:30 / 폐장 22:30\n우천 시 야간 운영 취소",
+      "admission": {"amountKrw": 10000, "basis": "PERSON", "status": "VERIFIED", "description": "성인(20세 이상) 10,000원 / 36개월 이상~19세 8,000원 / 36개월 미만 무료. 경로·단체 등 할인 대상은 운영처 요금표를 확인해 주세요.", "sourceUrl": "https://www.ffestival.co.kr/page/sub1_2"},
+      "contact": {"phone": "0507-1497-5536", "label": "네이처월드 운영 문의"},
+      "highlights": [
+        {"title": "야간 빛정원 산책", "description": "LED 조형물과 테마 조명을 둘러보는 야외 관람입니다. 점등 시간 이후 방문해 주세요.", "sourceUrl": "https://www.taean.go.kr/prog/tursmCn/tour/sub04_01_18/view.do?cntno=80"},
+        {"title": "테마 포토존", "description": "정원 곳곳의 조명 포토존에서 사진을 남길 수 있습니다. 관람 동선과 기상 상황은 현장 안내를 따라 주세요.", "sourceUrl": "https://www.taean.go.kr/prog/tursmCn/tour/sub04_01_18/view.do?cntno=80"}
+      ],
+      "programNotice": "별도 시각이 정해진 공연 대신 점등 시간에 맞춰 둘러보는 관람형 축제입니다. 개별 이벤트는 운영처 공지에서 확인해 주세요.",
+      "booths": [],
+      "lineup": [],
+      "directions": {"description": "자가용: 서해안고속도로 서산IC·해미IC 또는 홍성IC에서 태안·국도77호를 거쳐 원청사거리와 마검포 방향으로 이동합니다. 내비게이션에 '네이처월드' 또는 '마검포길 200'을 입력하세요.\n\n대중교통: 태안터미널에서 곰섬·마검포 방향 버스를 이용하면 네이처월드 앞에서 하차할 수 있습니다. 신온리 방향 버스는 삼성초등학교 하차 후 도보 약 15분입니다. 막차와 당일 운행시간은 터미널·운영처에서 확인해 주세요.", "url": "https://www.ffestival.co.kr/page/sub1_3", "sourceUrl": "https://www.ffestival.co.kr/page/sub1_3"},
+      "shuttle": {"description": "확인한 공식 교통 안내는 시내버스와 자가용 경로를 제공합니다. 전용 셔틀의 별도 운행 공지는 확인되지 않았습니다.", "url": "https://www.ffestival.co.kr/page/sub1_3", "sourceUrl": "https://www.ffestival.co.kr/page/sub1_3"},
+      "sourceUrl": "https://www.ffestival.co.kr/page/sub1_2",
+      "sources": [
+        {"title": "네이처월드 운영시간·요금", "url": "https://www.ffestival.co.kr/page/sub1_2"},
+        {"title": "태안군 축제 소개", "url": "https://www.taean.go.kr/prog/tursmCn/tour/sub04_01_18/view.do?cntno=80"},
+        {"title": "네이처월드 교통 안내", "url": "https://www.ffestival.co.kr/page/sub1_3"}
+      ],
+      "visitSchedule": [
+        {"from": "11-01", "to": "01-31", "open": "17:30", "close": "22:00"},
+        {"from": "02-01", "to": "02-29", "open": "18:00", "close": "22:30"},
+        {"from": "03-01", "to": "06-04", "open": "19:00", "close": "22:30"},
+        {"from": "06-05", "to": "08-31", "open": "19:30", "close": "23:00"},
+        {"from": "09-01", "to": "09-29", "open": "19:00", "close": "22:30"},
+        {"from": "09-30", "to": "10-31", "open": "18:30", "close": "22:30"}
+      ]
+    },
+    {
+      "id": "fst_cn_182_2026",
+      "name": "대천겨울바다사랑축제",
+      "description": "대천해수욕장과 보령머드테마파크 일원에서 겨울 바다와 빛을 함께 즐기는 연말 축제입니다. 바다를 배경으로 한 야간 경관과 가족·연인을 위한 체험을 중심으로 소개되는 보령의 겨울 행사입니다.\n\n충남관광에 등록된 2026년 개최 기간은 12월 24일부터 27일까지입니다. 주최측의 일부 상세 일정 페이지에는 2025년 회차가 남아 있어, 이전 연도의 공연·드론쇼 시간이나 체험 가격을 2026년 확정 정보로 적용하지 않았습니다.",
+      "venueLabel": "대천해수욕장 머드광장·보령머드테마파크 일원 · 충남 보령시 고잠2길 55",
+      "openingHours": "2026년 일자별 운영시간은 주최측 세부 공고 확인 필요",
+      "admission": {"amountKrw": null, "basis": "PERSON", "status": "UNKNOWN", "description": "2026년 회차의 입장·체험 요금은 주최측 공고에서 확인해 주세요. 이전 회차의 무료 입장·일부 유료 체험 안내를 올해 확정 요금으로 사용하지 않았습니다.", "sourceUrl": "https://mudfestival.or.kr/festival/schedule/view?level=2&menuNo=11"},
+      "contact": {"phone": "041-930-0891", "label": "보령축제관광재단 행사 문의"},
+      "highlights": [
+        {"title": "겨울 바다와 야간 경관", "description": "대천해수욕장을 배경으로 빛 조명과 겨울 바다 분위기를 함께 즐기는 축제입니다. 2026년 점등 구간·시간은 세부 공고를 확인해 주세요.", "sourceUrl": "https://tour.chungnam.go.kr/prog/fstvl/kor/sub02_02_02/view.do?fstvlNo=182"},
+        {"title": "가족·연인 체험 행사", "description": "체험 중심 행사로 소개되어 있습니다. 2026년 프로그램별 일정·예약·참가비는 보령축제관광재단의 최신 공고를 기준으로 확인해 주세요.", "sourceUrl": "https://tour.chungnam.go.kr/prog/fstvl/kor/sub02_02_02/view.do?fstvlNo=182"}
+      ],
+      "programNotice": "2026년 확정 시각이 확인된 개별 공연은 아직 등록하지 않았습니다. 이전 연도 행사일정과 혼동하지 않도록 최신 공고를 확인해 주세요.",
+      "booths": [],
+      "lineup": [],
+      "directions": {"description": "주행사장은 대천해수욕장 머드광장과 보령머드테마파크 일원입니다. 내비게이션 목적지는 '보령머드테마파크(고잠2길 55)' 또는 '대천해수욕장 머드광장(해수욕장10길 5)'을 이용하세요.\n\n축제장별 출입구·주차장·교통 통제는 2026년 주최측 행사장 안내를 확인해 주세요. 이전 회차 임시주차장을 올해 확정 주차장으로 안내하지 않았습니다.", "url": "https://mudfestival.or.kr/festival/schedule/view?level=2&menuNo=11", "sourceUrl": "https://mudfestival.or.kr/festival/schedule/view?level=2&menuNo=11"},
+      "shuttle": {"description": "2026년 전용 셔틀의 노선·배차·운행시간은 확인한 공식 자료에 공개되어 있지 않습니다. 재단 문의 또는 행사장 교통 공고를 확인해 주세요.", "url": "https://mudfestival.or.kr/festival/schedule/view?level=2&menuNo=11", "sourceUrl": "https://mudfestival.or.kr/festival/schedule/view?level=2&menuNo=11"},
+      "sourceUrl": "https://tour.chungnam.go.kr/prog/fstvl/kor/sub02_02_02/view.do?fstvlNo=182",
+      "sources": [
+        {"title": "충남관광 2026년 일정·장소", "url": "https://tour.chungnam.go.kr/prog/fstvl/kor/sub02_02_02/view.do?fstvlNo=182"},
+        {"title": "보령축제관광재단 행사일정", "url": "https://mudfestival.or.kr/festival/schedule/view?level=2&menuNo=11"}
+      ]
+    },
+    {
+      "id": "fst_cn_273_2027",
+      "name": "2027 논산세계딸기산업엑스포",
+      "description": "논산 딸기의 먹거리·체험과 세계 딸기산업의 기술을 함께 만나는 국제 행사입니다. 2027년 2월 26일부터 3월 21일까지 24일간 열리며, 주행사장은 논산시민가족공원입니다.\n\n주제관·글로벌관·산업관·로컬·체험관 등 전시와 문화행사가 안내되어 있습니다. 국제학술행사는 건양대학교 콘서트홀에서 진행하는 구성으로 소개되어 있어, 방문하려는 프로그램의 장소를 먼저 확인하면 좋습니다.\n\n사전예매 기간은 2026년 7월 20일부터 2027년 1월 31일까지입니다. 입장권 종류와 할인 조건에 따라 요금이 달라집니다.",
+      "venueLabel": "주행사장: 논산시민가족공원 · 논산시 관촉동 일원 / 연계 행사장: 시민운동장·딸기향농촌테마공원 등",
+      "openingHours": "행사 기간 2027.02.26~03.21 · 일일 개장·입장 마감시간은 공식 운영 공고 확인 필요",
+      "admission": {"amountKrw": 12000, "basis": "PERSON", "status": "VERIFIED", "description": "일반권 정상가 12,000원 / 사전예매 9,000원. 청소년권 정상가 10,000원·사전 7,000원, 어린이권 정상가 7,000원·사전 5,000원. 사전예매: 2026.07.20~2027.01.31. 단체·우대 조건은 예매 안내를 확인해 주세요. 여행 예산은 일반 정상가 기준입니다.", "sourceUrl": "https://www.nonsan.go.kr/kor/html/sub03/030101.html?GotoPage=1&mode=V&no=31ef71944d46c2036982054754d90901"},
+      "contact": {"phone": "041-746-5114", "label": "논산시 안내·문의"},
+      "highlights": [
+        {"title": "주제관·글로벌관", "description": "주행사장의 딸기산업 전시관을 둘러보는 관람 구역입니다.", "sourceUrl": "https://welfare.nonsan.go.kr/tour/html/sub03/030109.html"},
+        {"title": "산업관·로컬·체험관", "description": "산업 전시와 지역·체험 콘텐츠가 안내되어 있습니다. 개별 체험의 예약과 추가 비용은 운영 공고에서 확인해 주세요.", "sourceUrl": "https://welfare.nonsan.go.kr/tour/html/sub03/030109.html"},
+        {"title": "공연·공식행사", "description": "개·폐막식과 공연행사가 계획되어 있습니다. 출연진과 시간표는 확정 공고를 기준으로 확인해 주세요.", "sourceUrl": "https://welfare.nonsan.go.kr/tour/html/sub03/030109.html"},
+        {"title": "국제학술행사", "description": "건양대학교 콘서트홀에서 기후변화·탄소중립 등 관련 주제의 학술행사를 진행하는 구성입니다.", "sourceUrl": "https://welfare.nonsan.go.kr/tour/html/sub03/030109.html"}
+      ],
+      "programNotice": "전시 구성은 공개되어 있지만 개별 체험·공연의 확정 시각은 확인되지 않았습니다. 시각이 확정된 프로그램만 필수 일정으로 선택할 수 있습니다.",
+      "booths": [],
+      "lineup": [],
+      "directions": {"description": "주행사장은 논산시민가족공원입니다. 충남관광에는 관촉동 337-4, 논산시 안내에는 시민가족공원·시민운동장·딸기향농촌테마공원 일원으로 등록되어 있습니다. 내비게이션에서 '논산시민가족공원'을 검색하고 실제 입장 게이트는 행사장 공고를 확인하세요.\n\n국제학술행사는 건양대학교 콘서트홀로 안내되어 있습니다. 행사별 장소가 다르므로 목적지를 구분해 주세요. 주차장 배치와 대중교통 연계의 확정 안내는 공식 누리집에서 확인해 주세요.", "url": "https://www.2027nonsanexpo.or.kr/kor.do", "sourceUrl": "https://welfare.nonsan.go.kr/tour/html/sub03/030109.html"},
+      "shuttle": {"description": "확인한 공식 안내에서 셔틀의 확정 승차장·배차표는 확인되지 않았습니다. 행사 공식 누리집의 교통 안내를 확인해 주세요.", "url": "https://www.2027nonsanexpo.or.kr/kor.do", "sourceUrl": "https://welfare.nonsan.go.kr/tour/html/sub03/030109.html"},
+      "sourceUrl": "https://welfare.nonsan.go.kr/tour/html/sub03/030109.html",
+      "sources": [
+        {"title": "논산시 행사·전시 구성", "url": "https://welfare.nonsan.go.kr/tour/html/sub03/030109.html"},
+        {"title": "논산시 입장권 사전예매 공고", "url": "https://www.nonsan.go.kr/kor/html/sub03/030101.html?GotoPage=1&mode=V&no=31ef71944d46c2036982054754d90901"},
+        {"title": "충남관광 개최 기간·장소", "url": "https://tour.chungnam.go.kr/prog/fstvl/kor/sub02_02_02/view.do?fstvlNo=273"}
+      ]
+    }
+  ]
+}
