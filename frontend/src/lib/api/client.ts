@@ -12,6 +12,27 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
+// AbortSignal.any is missing on Safari/iOS < 17.4: one controller aborted by the
+// parent signal or a timeout (TimeoutError, like AbortSignal.timeout).
+export function withTimeout(parent: AbortSignal, ms: number): AbortSignal {
+  const controller = new AbortController();
+  const forward = () => controller.abort(parent.reason);
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+    ms,
+  );
+  controller.signal.addEventListener(
+    "abort",
+    () => {
+      clearTimeout(timer);
+      parent.removeEventListener("abort", forward);
+    },
+    { once: true },
+  );
+  if (parent.aborted) forward();
+  else parent.addEventListener("abort", forward, { once: true });
+  return controller.signal;
+}
 export async function apiGet<T>(
   path: string,
   signal?: AbortSignal,

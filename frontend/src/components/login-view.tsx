@@ -48,7 +48,7 @@ export function LoginView() {
       setBusy(false);
     }
   }
-  if (loading || session?.user) return <Loading />;
+  if (loading || session?.user) return <Loading label="로그인 상태를 확인하는 중" />;
   return (
     <section className="login-prompt login-card">
       <span className="account-avatar">
@@ -153,6 +153,11 @@ export function LoginView() {
         <p role="alert" className="field-error">
           현재 카카오 로그인에 연결할 수 없어요. 아이디·비밀번호로 로그인해
           주세요.
+        </p>
+      )}
+      {params.get("error") === "rate_limited" && (
+        <p role="alert" className="field-error">
+          로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.
         </p>
       )}
       <p className="muted">로그인 후 선택한 화면으로 돌아옵니다.</p>

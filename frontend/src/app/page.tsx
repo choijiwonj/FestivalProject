@@ -59,7 +59,7 @@ export default function Home() {
       <section className="section">
         <SectionHeading title="이번엔 이 동네 어때요?" label="추천 축제" />
         {recommendations.loading ? (
-          <Loading />
+          <Loading label="축제 정보를 불러오는 중" />
         ) : recommendations.error ? (
           <ErrorState
             message={recommendations.error.message}
@@ -122,7 +122,7 @@ export default function Home() {
           ))}
         </div>
         {all.loading ? (
-          <Loading />
+          <Loading label="축제 정보를 불러오는 중" />
         ) : all.error ? (
           <ErrorState message={all.error.message} retry={all.retry} />
         ) : !all.data?.data.length ? (

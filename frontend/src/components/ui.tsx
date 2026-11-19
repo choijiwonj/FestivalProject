@@ -36,14 +36,10 @@ export function FestivalRow({ festival: f }: { festival: FestivalSummary }) {
 export function formatDates(start: string, end: string) {
   return `${start.slice(5).replace("-", ".")}—${end.slice(5).replace("-", ".")}`;
 }
-export function Loading() {
+export function Loading({ label = "불러오는 중…" }: { label?: string }) {
   return (
-    <div
-      role="status"
-      aria-label="축제 정보를 불러오는 중"
-      className="space-y-4"
-    >
-      <span className="sr-only">불러오는 중…</span>
+    <div role="status" aria-label={label} className="space-y-4">
+      <span className="sr-only">{label}</span>
       {[1, 2, 3].map((n) => (
         <div key={n} className="skeleton h-[74px] rounded-2xl" />
       ))}

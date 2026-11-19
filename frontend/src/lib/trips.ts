@@ -99,6 +99,7 @@ export type TripPlan = {
     limitKrw: number | null;
     knownTotalKrw: number;
     estimatedTotalKrw?: number | null;
+    dataMode?: "SIMULATION" | null;
     items?: { label: string; amountKrw: number | null; status: string }[];
     unknownItemCount: number;
     status: string;

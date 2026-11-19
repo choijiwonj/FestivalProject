@@ -65,10 +65,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       (e) => {
         if (active && sequence.current === current && e.name !== "AbortError") {
-          resolved.current = true;
+          setLoading(false);
+          // A failed background re-check (e.g. on focus) keeps the known session;
+          // only a 401 signs out, via AUTH_EXPIRED_EVENT -> clear().
+          if (resolved.current) {
+            console.warn("session re-check failed; keeping previous session", e);
+            return;
+          }
           setSession(null);
           setError(e);
-          setLoading(false);
         }
       },
     );

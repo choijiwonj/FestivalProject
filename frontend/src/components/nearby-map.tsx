@@ -124,6 +124,7 @@ function MapCanvas({ center, places, selected, onSelect, onBounds }: {
     let timer: ReturnType<typeof setTimeout>;
     let instance: LeafletMap | undefined;
     let resize: ResizeObserver | undefined;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset map state before loading Leaflet
     setReady(false); setError("");
     import("leaflet").then((L) => {
       if (disposed || !container.current) return;

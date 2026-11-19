@@ -22,7 +22,7 @@ function PlanContent({ id }: { id: string }) {
   const result = useResource(
     useCallback((signal: AbortSignal) => accountApi.plan(id, signal), [id]),
   );
-  if (result.loading) return <Loading />;
+  if (result.loading) return <Loading label="여행 계획을 불러오는 중" />;
   if (result.error)
     return <ErrorState message={result.error.message} retry={result.retry} />;
   return <PlanView plan={result.data!.data} />;
@@ -86,6 +86,12 @@ function PlanView({ plan }: { plan: TripPlan }) {
             ? "AI 장소 추천을 완료하지 못했거나 추가 후보가 없는 일정입니다. 아래 사유와 미확인 정보를 확인해 주세요."
             : "추천 이유와 날짜별 방문 일정을 확인해 주세요. 이동·영업시간·비용이 미확인인 항목은 방문 전 확인이 필요해요."}
         </p>
+        {plan.budget.dataMode === "SIMULATION" && (
+          <p className="mt-2">
+            <span className="sample-badge">시연용 데이터</span> 시연용 추정
+            데이터로 만든 계획이에요. 실제 영업시간·가격과 다를 수 있어요.
+          </p>
+        )}
       </Notice>
       {warnings.length > 0 && (
         <details

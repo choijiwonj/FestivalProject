@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle } from "lucide-react";
 import { tripApi } from "@/lib/api/trips";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, withTimeout } from "@/lib/api/client";
 import { generationOutcome, stageLabels, type Job } from "@/lib/trips";
 import { RequireAuth } from "./require-auth";
 import { Notice } from "./ui";
@@ -27,6 +27,7 @@ function Progress({ id }: { id: string }) {
     const controller = new AbortController();
     const started = Date.now();
     let delay = 2000;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset polling state when the job id/round changes
     setError("");
     setSlow(false);
     setJob(null);
@@ -34,7 +35,7 @@ function Progress({ id }: { id: string }) {
       try {
         const result = await tripApi.job(
           id,
-          AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+          withTimeout(controller.signal, 15000),
         );
         if (!active) return;
         setJob(result.data);
