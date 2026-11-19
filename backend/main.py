@@ -13,8 +13,9 @@ from routers import auth, catalog, exports, me, ops, posts, trips, uploads
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # ponytail: create_all로 테이블 생성. 운영 DB 스키마가 생기면 Alembic 마이그레이션으로 바꾼다.
-    Base.metadata.create_all(engine)
+    # 로컬 SQLite·테스트는 create_all로 바로 만들고, 운영(Postgres)은 배포 전에 `alembic upgrade head`로 맞춘다.
+    if LOCAL:
+        Base.metadata.create_all(engine)
     if os.getenv("SEED_DEMO") == "1":
         from seed import seed
         with SessionLocal() as db:
