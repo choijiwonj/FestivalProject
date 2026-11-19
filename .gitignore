@@ -8,3 +8,10 @@ __pycache__/
 backend/storage/
 output/
 tmp/
+# 로컬 도구·백업·생성 파일
+.idea/
+/backend/content_backups/
+*.db-*
+*.sqlite
+*.sqlite3
+*.tsbuildinfo
