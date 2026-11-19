@@ -192,3 +192,26 @@ class PlanExport(Base):
     body_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
+
+
+class Upload(Base):
+    __tablename__ = "uploads"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    content_type: Mapped[str] = mapped_column(String(20))
+    size: Mapped[int]
+    # ponytail: 사진도 DB 행에 보관(PlanExport와 같은 이유). 사진이 많아지면 객체 저장소로 옮긴다.
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    created_at: Mapped[datetime]
+
+
+class Post(Base):
+    __tablename__ = "posts"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    festival_id: Mapped[str] = mapped_column(ForeignKey("festivals.id"))
+    body: Mapped[str] = mapped_column(Text)
+    cover_upload_id: Mapped[str | None] = mapped_column(ForeignKey("uploads.id"))
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    user: Mapped[User] = relationship(lazy="joined")

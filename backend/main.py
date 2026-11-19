@@ -8,7 +8,7 @@ from starlette.exceptions import HTTPException
 
 from core import ApiError, error_response, new_id, request_id_var
 from db import Base, SessionLocal, engine
-from routers import auth, catalog, exports, me, trips
+from routers import auth, catalog, exports, me, posts, trips, uploads
 
 
 @asynccontextmanager
@@ -25,7 +25,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="축제잇길 API", version="0.3", lifespan=lifespan)
 
 v1 = APIRouter(prefix="/api/v1")
-for r in (auth, catalog, trips, exports, me):
+for r in (auth, catalog, trips, exports, me, posts, uploads):
     v1.include_router(r.router)
 app.include_router(v1)
 
