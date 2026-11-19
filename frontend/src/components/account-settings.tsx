@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RequireAuth } from "./require-auth";
 import { useAuth } from "./auth-provider";
@@ -19,6 +19,20 @@ function AccountContent() {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const cancelRef = useRef<HTMLButtonElement>(null),
+    triggerRef = useRef<HTMLButtonElement>(null),
+    opened = useRef(false);
+  // Focus the cancel button on open and return focus to the trigger on close.
+  useEffect(() => {
+    if (confirm) cancelRef.current?.focus();
+    else if (opened.current) triggerRef.current?.focus();
+    opened.current = confirm;
+  }, [confirm]);
+  function close() {
+    if (busy) return;
+    setConfirm(false);
+    setError("");
+  }
   async function logout() {
     setBusy(true);
     setError("");
@@ -59,17 +73,19 @@ function AccountContent() {
             className="account-confirm"
             role="alertdialog"
             aria-labelledby="logout-title"
+            aria-describedby="logout-description"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") close();
+            }}
           >
             <h2 id="logout-title">로그아웃하시겠어요?</h2>
-            <p>저장된 여행 계획은 유지돼요.</p>
+            <p id="logout-description">저장된 여행 계획은 유지돼요.</p>
             <div className="flex gap-2 mt-4">
               <button
+                ref={cancelRef}
                 className="button secondary"
                 disabled={busy}
-                onClick={() => {
-                  setConfirm(false);
-                  setError("");
-                }}
+                onClick={close}
               >
                 취소
               </button>
@@ -79,7 +95,11 @@ function AccountContent() {
             </div>
           </section>
         ) : (
-          <button className="button secondary" onClick={() => setConfirm(true)}>
+          <button
+            ref={triggerRef}
+            className="button secondary"
+            onClick={() => setConfirm(true)}
+          >
             로그아웃
           </button>
         )}

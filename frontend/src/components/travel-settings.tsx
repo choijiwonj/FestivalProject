@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api/client";
 import { RequireAuth } from "./require-auth";
 import { useAuth } from "./auth-provider";
 import { Loading, ErrorState, Notice } from "./ui";
+import { OriginPicker } from "./trip-search";
 export function TravelSettings() {
   return (
     <RequireAuth>
@@ -17,7 +18,7 @@ function TravelContent() {
   const result = useResource(
     useCallback((signal: AbortSignal) => accountApi.settings(signal), []),
   );
-  if (result.loading) return <Loading />;
+  if (result.loading) return <Loading label="여행 기본 설정을 불러오는 중" />;
   if (result.error)
     return <ErrorState message={result.error.message} retry={result.retry} />;
   return (
@@ -41,6 +42,7 @@ function TravelForm({
   const [message, setMessage] = useState("");
   const [failed, setFailed] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const [originChanged, setOriginChanged] = useState(false);
   const defaults = value.travelDefaults;
   function update<K extends keyof UserSettings["travelDefaults"]>(
     key: K,
@@ -71,8 +73,10 @@ function TravelForm({
       const response = await accountApi.saveSettings(
         value,
         session?.csrfToken ?? null,
+        originChanged,
       );
       setValue(response.data);
+      setOriginChanged(false);
       setFailed(false);
       setMessage("여행 기본 설정을 저장했어요.");
     } catch (e) {
@@ -81,7 +85,11 @@ function TravelForm({
       setMessage(
         e instanceof ApiError && e.status === 409
           ? "다른 곳에서 설정이 변경됐어요. 최신 설정을 불러온 뒤 다시 수정해 주세요."
-          : e instanceof Error
+          : e instanceof ApiError &&
+              (e.code === "ORIGIN_STORAGE_DISABLED" ||
+                e.fields.some((f) => f.reason === "storage_disabled"))
+            ? "기본 출발지를 저장하려면 아래 ‘기본 출발지 저장 허용’을 먼저 켜 주세요."
+            : e instanceof Error
             ? e.message
             : "저장하지 못했어요. 다시 시도해 주세요.",
       );
@@ -100,15 +108,20 @@ function TravelForm({
       <form onSubmit={save} className="travel-form">
         <fieldset className="filter-panel" disabled={busy}>
           <legend className="sr-only">여행 기본 조건</legend>
-          <div>
-            <h2>기본 출발지</h2>
-            <p className="muted mt-2">
-              {defaults.origin?.label ?? "저장된 출발지가 없어요."}
+          <OriginPicker
+            value={defaults.origin}
+            onChange={(origin) => {
+              update("origin", origin);
+              setOriginChanged(true);
+            }}
+          />
+          {!defaults.origin && (
+            <p className="muted">
+              {originChanged
+                ? "출발지를 선택하지 않고 저장하면 기본 출발지가 삭제돼요."
+                : "저장된 기본 출발지가 없어요."}
             </p>
-            <p className="muted mt-2">
-              출발지 검색과 변경은 여행 조건 입력 기능에서 제공할 예정이에요.
-            </p>
-          </div>
+          )}
           <label>
             교통수단
             <select

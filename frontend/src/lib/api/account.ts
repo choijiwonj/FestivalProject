@@ -106,7 +106,12 @@ export const accountApi = {
     ),
   settings: (signal?: AbortSignal) =>
     apiGet<ApiResponse<UserSettings>>("/me/settings", signal),
-  saveSettings: (value: UserSettings, csrfToken: string | null) =>
+  // Send originLocationId only when the user changed it (null clears it).
+  saveSettings: (
+    value: UserSettings,
+    csrfToken: string | null,
+    originChanged = false,
+  ) =>
     apiRequest<ApiResponse<UserSettings>>("/me/settings", {
       method: "PATCH",
       csrfToken,
@@ -118,6 +123,9 @@ export const accountApi = {
           interests: value.travelDefaults.interests,
           style: value.travelDefaults.style,
           lodgingPreference: value.travelDefaults.lodgingPreference,
+          ...(originChanged && {
+            originLocationId: value.travelDefaults.origin?.locationId ?? null,
+          }),
         },
         privacy: value.privacy,
       },

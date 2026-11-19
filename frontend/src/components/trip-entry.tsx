@@ -98,6 +98,7 @@ function TripWizard({ festival }: { festival: FestivalDetail }) {
   const [defaultsRound, setDefaultsRound] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset failure flag before refetching defaults
     setDefaultsFailed(false);
     accountApi.settings(controller.signal).then(
       (response) => {

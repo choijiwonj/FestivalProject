@@ -43,7 +43,7 @@ export function FestivalDetailView({ id }: { id: string }) {
     ),
   );
   const [tab, setTab] = useState("소개");
-  if (result.loading) return <Loading />;
+  if (result.loading) return <Loading label="축제 정보를 불러오는 중" />;
   if (result.error)
     return (
       <>

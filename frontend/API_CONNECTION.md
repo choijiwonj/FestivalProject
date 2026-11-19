@@ -1,6 +1,6 @@
 # 여행 생성 API 연결
 
-현재 실행 폴더 `C:\Users\User\OneDrive\Desktop\test`에 적용하는 여행 생성 연결 코드입니다. 원본 작업본은 `outputs/festival-front`에 있습니다.
+`frontend/`에 적용된 여행 생성 연결 코드입니다.
 
 ## 연결한 흐름
 
@@ -30,7 +30,7 @@
 
 아이디 로그인 요청은 `{ "username": "계정 아이디", "password": "비밀번호" }`이며, 응답은 `{ data: { user, csrfToken }, meta }`와 HttpOnly 세션 쿠키입니다. 로그인 POST만 기존 세션 CSRF 없이 호출하고, 이후 쓰기 API는 세션의 CSRF 토큰을 계속 사용합니다. 백엔드가 로그인 요청의 Origin을 확인합니다. 다른 프런트 포트를 사용할 때는 백엔드 FRONTEND_ORIGIN도 실제 주소로 설정하세요. 비밀번호는 local_credentials 테이블에 무작위 salt를 사용한 scrypt 해시로만 저장하며, Supabase 공개 API 역할의 테이블 읽기 권한은 차단합니다. 공개 회원가입 API는 추가하지 않았습니다.
 
-백엔드 `C:\Users\User\FestivalProject\backend\.env`에 설정할 항목:
+백엔드 `backend/.env`에 설정할 항목:
 
 ```dotenv
 DEV_LOGIN=0

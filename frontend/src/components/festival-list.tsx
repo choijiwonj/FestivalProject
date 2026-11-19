@@ -185,7 +185,7 @@ function ListContent({ query }: { query: string }) {
         </button>
       </div>
       {result.loading ? (
-        <Loading />
+        <Loading label="축제 정보를 불러오는 중" />
       ) : result.error ? (
         <ErrorState message={result.error.message} retry={result.retry} />
       ) : !result.data?.data.length ? (

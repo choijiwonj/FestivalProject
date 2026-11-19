@@ -62,6 +62,7 @@ export function OriginPicker({
   const [q, setQ] = useState(value?.label ?? "");
   const search = useSearch<Location>();
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync input text with the selected location
     if (value) setQ(value.label);
   }, [value]);
   function run() {

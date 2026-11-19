@@ -35,7 +35,7 @@ function Library({ kind }: { kind: "plans" | "reviews" }) {
       [kind, cursor],
     ),
   );
-  if (result.loading) return <Loading />;
+  if (result.loading) return <Loading label={kind === "plans" ? "저장된 계획을 불러오는 중" : "내 후기를 불러오는 중"} />;
   if (result.error instanceof ApiError && result.error.status === 401)
     return <LoginPrompt returnTo={`/my/${kind}`} />;
   if (result.error instanceof ApiError && result.error.status === 404)

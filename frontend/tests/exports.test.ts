@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { exportApi, exportDates, exportFile, exportOutcome, safeExportFilename, type ExportRecord } from "../src/lib/api/exports";
-import { ApiError } from "../src/lib/api/client";
+import { ApiError, withTimeout } from "../src/lib/api/client";
 
 test("날짜는 계획 순서로 정렬하고 빈 선택·중복·계획 밖 날짜를 거절한다", () => {
   const dates = ["2026-12-24", "2026-12-25"];
@@ -67,4 +67,15 @@ test("저장 파일명은 경로·제어문자를 제거하고 실제 파일 형
   assert.equal(safeExportFilename("여행 계획.pdf", "application/pdf"), "여행 계획.pdf");
   assert.equal(safeExportFilename("../여행\n.png", "application/zip"), "_여행_.zip");
   assert.equal(safeExportFilename(null, "image/png"), "여행계획.png");
+});
+
+test("withTimeout은 부모 신호 중단을 전달하고 시간 초과 시 TimeoutError로 중단한다", async () => {
+  const parent = new AbortController();
+  const forwarded = withTimeout(parent.signal, 10_000);
+  parent.abort();
+  assert.equal(forwarded.aborted, true);
+  assert.equal((forwarded.reason as DOMException).name, "AbortError");
+  const timed = withTimeout(new AbortController().signal, 5);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal((timed.reason as DOMException).name, "TimeoutError");
 });
