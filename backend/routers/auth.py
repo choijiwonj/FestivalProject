@@ -11,13 +11,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DB
 
 from core import (COOKIE_SECURE, DEV_LOGIN, KAKAO_CLIENT_SECRET, KAKAO_REDIRECT_URI, KAKAO_REST_API_KEY,
-                  SESSION_COOKIE, SESSION_DAYS, ApiError, check_csrf, create_session, current_session, new_id, now, ok)
+                  SESSION_COOKIE, SESSION_DAYS, ApiError, check_csrf, create_session, current_session, limit_by_ip,
+                  new_id, now, ok)
 from db import User, UserSettings, get_db
 
 router = APIRouter()
 PROVIDERS = {"kakao"} | ({"dev"} if DEV_LOGIN else set())
 STATE_COOKIE = "oauth_state"
 log = logging.getLogger(__name__)
+limit_login = Depends(limit_by_ip("auth", 20, 60))  # 로그인 시작·콜백 합산, IP당 분당 20회
 
 
 def user_out(u: User) -> dict:
@@ -69,7 +71,7 @@ def session(request: Request, db: DB = Depends(get_db)):
     return ok({"user": user_out(s.user) if s else None, "csrfToken": s.csrf_token if s else None})
 
 
-@router.get("/auth/login/{provider}")
+@router.get("/auth/login/{provider}", dependencies=[limit_login])
 def login(provider: str, returnTo: str | None = None, db: DB = Depends(get_db)):
     if provider not in PROVIDERS:
         raise ApiError(404, "PROVIDER_NOT_SUPPORTED", "지원하지 않는 로그인 방식입니다.")
@@ -88,7 +90,7 @@ def login(provider: str, returnTo: str | None = None, db: DB = Depends(get_db)):
     return resp
 
 
-@router.get("/auth/callback/{provider}")
+@router.get("/auth/callback/{provider}", dependencies=[limit_login])
 def callback(provider: str, request: Request, code: str | None = None, state: str | None = None,
              db: DB = Depends(get_db)):
     try:

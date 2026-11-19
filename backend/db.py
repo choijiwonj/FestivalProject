@@ -215,3 +215,11 @@ class Post(Base):
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
     user: Mapped[User] = relationship(lazy="joined")
+
+
+class RateLimit(Base):
+    """고정 구간 요청 수. 오래된 구간은 maintenance.cleanup이 지운다."""
+    __tablename__ = "rate_limits"
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)  # "이름:IP" 또는 "이름:사용자ID"
+    window_start: Mapped[datetime] = mapped_column(primary_key=True)
+    count: Mapped[int] = mapped_column(default=0)

@@ -10,7 +10,7 @@ from core import ApiError, field, new_id, now, ok, require_user
 from db import Upload, User, get_db
 
 router = APIRouter()
-MAX_BYTES = 5 * 1024 * 1024
+MAX_BYTES = 4 * 1024 * 1024  # Vercel 함수 요청 본문 한도(약 4.5MB) 아래로 둔다
 MAX_PIXELS = 40_000_000  # 압축 폭탄(작은 파일, 거대한 해상도) 방지
 TYPES = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 
@@ -30,7 +30,7 @@ def owned_upload(db: DB, user: User, upload_id: str, path: str) -> Upload:
 def create_upload(file: UploadFile, user: User = Depends(require_user), db: DB = Depends(get_db)):
     data = file.file.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
-        raise ApiError(413, "UPLOAD_TOO_LARGE", "사진은 5MB 이하로 올려 주세요.", field("file", "too_large"))
+        raise ApiError(413, "UPLOAD_TOO_LARGE", "사진은 4MB 이하로 올려 주세요.", field("file", "too_large"))
     # 헤더(Content-Type)는 믿지 않고 실제로 열어 형식을 확인한 뒤, 다시 저장해 EXIF(위치 정보 등)를 지운다.
     try:
         img = Image.open(BytesIO(data))
