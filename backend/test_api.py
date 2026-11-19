@@ -888,6 +888,21 @@ def test_simulation_budget_flags_over_budget_and_excludes_self_arranged_lodging(
     assert budget["knownTotalKrw"] == 0 < budget["estimatedTotalKrw"]
 
 
+def test_assumed_room_count_is_not_counted_as_verified_lodging():
+    from budgeting import calculate_budget
+    days = [{"date": "2026-01-01", "stops": [{"type": "LODGING", "name": "호텔", "costKrw": 100000,
+                                               "costBasis": "ROOM", "costStatus": "VERIFIED"}], "legs": []},
+            {"date": "2026-01-02", "stops": [], "legs": []}]
+    inp = {"transport": "TRANSIT", "budgetKrw": None, "lodgingPreference": "ANY"}
+    lodging = lambda b: next(item for item in b["items"] if item["category"] == "LODGING")
+    pair = calculate_budget({**inp, "travelers": 2}, days)
+    assert lodging(pair)["status"] == "VERIFIED" and pair["knownTotalKrw"] == 100000
+    group = calculate_budget({**inp, "travelers": 3}, days)
+    item = lodging(group)
+    assert item["status"] == "ESTIMATED" and item["quantity"] == 2 and "2인 1실 가정" in item["label"]
+    assert group["knownTotalKrw"] == 0 and group["estimatedTotalKrw"] == 200000
+
+
 def test_verified_light_festival_hours_are_seasonal():
     from festival_content import verified_visit_window
     assert verified_visit_window("fst_cn_113_2026", "2026-01-01") == {"open": "17:30", "close": "22:00"}

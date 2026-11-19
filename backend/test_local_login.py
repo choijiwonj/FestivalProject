@@ -99,3 +99,20 @@ def test_login_input_rejects_extra_fields_and_long_password(account):
         response=client.post("/api/v1/auth/login",json=payload)
         assert response.status_code in (400,422)
         assert PASSWORD not in response.text
+
+def test_throttle_counts_forwarded_client_ip_not_proxy(account):
+    client, _, _ = account
+    login = lambda ip, i: client.post("/api/v1/auth/login", json={"username": f"nobody-{ip[-1]}-{i}", "password": PASSWORD},
+                                      headers={"x-forwarded-for": ip}).status_code
+    assert [login("192.0.2.201", i) for i in range(10)] == [401] * 10
+    assert login("192.0.2.201", 10) == 429
+    assert login("192.0.2.202", 0) == 401  # 같은 프록시를 거쳐도 다른 클라이언트는 따로 센다
+
+def test_password_login_is_limited_per_username(account):
+    client, username, _ = account
+    for name in (username, "missing-" + username):  # 없는 아이디도 같은 응답으로 제한된다
+        codes = [client.post("/api/v1/auth/login", json={"username": name, "password": "wrong-password"},
+                             headers={"x-forwarded-for": f"192.0.2.{i}"}).status_code for i in range(11)]
+        assert codes == [401] * 10 + [429]
+    assert client.post("/api/v1/auth/login", json={"username": username, "password": PASSWORD},
+                       headers={"x-forwarded-for": "192.0.2.99"}).json()["error"]["code"] == "RATE_LIMITED"

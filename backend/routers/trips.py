@@ -1,5 +1,6 @@
 """여행 조건 검증·생성·작업 조회·계획 조회 (G04·G05)."""
 import hashlib
+import logging
 import uuid
 from datetime import timedelta
 from typing import Literal
@@ -15,6 +16,7 @@ from db import Festival, Job, PlanExport, TripPlan, TripRequest, User, get_db
 from planner import TripRequestInput, run_generation, validate_trip
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 class PlanPatch(BaseModel):
@@ -67,13 +69,8 @@ def regenerate(plan_id: str, body: RegenerationInput, background: BackgroundTask
     except IntegrityError as exc:
         original = exc.orig
         diag = getattr(original, "diag", None)
-        print(
-            "[trip DB error]",
-            "code:", getattr(original, "sqlstate", None),
-            "table:", getattr(diag, "table_name", None),
-            "constraint:", getattr(diag, "constraint_name", None),
-            flush=True,
-        )
+        log.warning("[trip DB error] code: %s table: %s constraint: %s", getattr(original, "sqlstate", None),
+                    getattr(diag, "table_name", None), getattr(diag, "constraint_name", None))
         db.rollback()
         response = replay()
         if response is None:
@@ -139,13 +136,8 @@ def create_trip(body: TripRequestInput, background: BackgroundTasks,
     except IntegrityError as exc:
         original = exc.orig
         diag = getattr(original, "diag", None)
-        print(
-            "[trip DB error]",
-            "code:", getattr(original, "sqlstate", None),
-            "table:", getattr(diag, "table_name", None),
-            "constraint:", getattr(diag, "constraint_name", None),
-            flush=True,
-        )
+        log.warning("[trip DB error] code: %s table: %s constraint: %s", getattr(original, "sqlstate", None),
+                    getattr(diag, "table_name", None), getattr(diag, "constraint_name", None))
         db.rollback()
         if resp := replay():
             return resp

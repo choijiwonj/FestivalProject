@@ -115,4 +115,4 @@ with engine.begin() as c:
     assert migrated.returncode == 0, migrated.stdout + migrated.stderr
     with sqlite3.connect(location) as connection:
         assert connection.execute('SELECT password_hash FROM local_credentials').fetchone()[0] == 'hash-to-preserve'
-        assert connection.execute('SELECT version_num FROM alembic_version').fetchone()[0] == '0003'
+        assert connection.execute('SELECT version_num FROM alembic_version').fetchone()[0] == '0004'

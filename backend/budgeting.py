@@ -34,8 +34,13 @@ def calculate_budget(inp, days):
         if price is None and enabled():
             price, status = config()["categories"]["LODGING"]["amountKrw"], "ESTIMATED"
         quantity = len(days) - 1
-        quantity *= people if basis == "PERSON" else ceil(people / settings.get("roomCapacity", 2))
-        add("LODGING", price, quantity, basis, status, "숙박 예상" if status == "ESTIMATED" else "숙박비")
+        capacity = settings.get("roomCapacity", 2)
+        quantity *= people if basis == "PERSON" else ceil(people / capacity)
+        rooms_assumed = basis != "PERSON" and people > capacity
+        if rooms_assumed and status == "VERIFIED":
+            status = "ESTIMATED"  # 객실 수를 인원으로 추정했으므로 확인된 합계에 넣지 않는다.
+        label = "숙박 예상" if status == "ESTIMATED" else "숙박비"
+        add("LODGING", price, quantity, basis, status, f"{label} ({capacity}인 1실 가정)" if rooms_assumed else label)
 
     for day in days:
         restaurants = 0
