@@ -181,11 +181,13 @@ def place(place_id: str, db: DB = Depends(get_db)):
 
 @router.get("/locations/search")
 def locations(q: str = Query(min_length=2, max_length=100), limit: int = Query(5, ge=1, le=10)):
-    if not KAKAO_REST_API_KEY:
+    import os
+    location_key = KAKAO_REST_API_KEY or os.getenv("KAKAO_MOBILITY_REST_API_KEY", "").strip()
+    if not location_key:
         raise ApiError(503, "PROVIDER_UNAVAILABLE", "위치 검색 서비스가 설정되지 않았습니다.", retryable=True)
     try:
         r = httpx.get("https://dapi.kakao.com/v2/local/search/keyword.json", params={"query": q, "size": limit},
-                      headers={"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}, timeout=5)
+                      headers={"Authorization": f"KakaoAK {location_key}"}, timeout=5)
         r.raise_for_status()
         docs = r.json()["documents"]
     except (httpx.HTTPError, KeyError, ValueError):
