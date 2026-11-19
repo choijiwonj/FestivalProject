@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import secrets
@@ -15,10 +16,12 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DB
 
 from db import DATABASE_URL, RateLimit, Session, User, get_db
 
+log = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))  # 한국은 서머타임이 없어 고정 오프셋으로 충분
 LOCAL = DATABASE_URL.startswith("sqlite")  # SQLite면 로컬 개발·테스트, 아니면 배포로 본다
 if not LOCAL and not os.getenv("SECRET_KEY"):
@@ -187,8 +190,13 @@ def rate_limit(db: DB, key: str, limit: int, window_seconds: int) -> None:
     insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
     stmt = insert(RateLimit).values(key=key[:200], window_start=start, count=1)
     stmt = stmt.on_conflict_do_update(index_elements=["key", "window_start"], set_={"count": RateLimit.count + 1})
-    count = db.scalar(stmt.returning(RateLimit.count))
-    db.commit()
+    try:
+        count = db.scalar(stmt.returning(RateLimit.count))
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        log.exception("rate_limit failed key=%s", key)
+        raise ApiError(503, "SERVICE_UNAVAILABLE", "잠시 후 다시 시도해 주세요.", retryable=True) from None
     if count > limit:
         raise ApiError(429, "RATE_LIMITED", "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", retryable=True)
 

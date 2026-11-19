@@ -3,7 +3,7 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import Response
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy.orm import Session as DB
 
 from core import ApiError, field, new_id, now, ok, require_user
@@ -34,14 +34,20 @@ def create_upload(file: UploadFile, user: User = Depends(require_user), db: DB =
     # 헤더(Content-Type)는 믿지 않고 실제로 열어 형식을 확인한 뒤, 다시 저장해 EXIF(위치 정보 등)를 지운다.
     try:
         img = Image.open(BytesIO(data))
-        fmt = img.format
-        if fmt not in TYPES or img.width * img.height > MAX_PIXELS:
-            raise ValueError(fmt)
-        out = BytesIO()
-        ImageOps.exif_transpose(img).save(out, fmt, quality=90)
-    except Exception:  # Pillow는 손상 파일마다 다른 예외를 낸다
+        fmt = "JPEG" if img.format == "MPO" else img.format  # MPO: 휴대폰 카메라 JPEG(여러 장 묶음), 첫 장만 저장
+        pixels = img.width * img.height
+        if fmt in TYPES and pixels <= MAX_PIXELS:
+            img = ImageOps.exif_transpose(img)  # 여기서 실제로 디코딩한다
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
+        fmt = None  # Pillow는 손상 파일마다 다른 예외를 낸다
+    if fmt not in TYPES:
         raise ApiError(422, "UPLOAD_INVALID_TYPE", "JPG, PNG, WEBP 사진만 올릴 수 있습니다.",
-                       field("file", "invalid_type")) from None
+                       field("file", "invalid_type"))
+    if pixels > MAX_PIXELS:
+        raise ApiError(413, "UPLOAD_TOO_LARGE", "사진 해상도가 너무 큽니다. 4000만 화소 이하로 줄여 올려 주세요.",
+                       field("file", "too_large"))
+    out = BytesIO()
+    img.save(out, fmt, quality=90)  # 다시 저장하다 실패하면 서버 오류(500)로 남긴다
     content = out.getvalue()
     u = Upload(id=new_id("upl"), user_id=user.id, content_type=TYPES[fmt], size=len(content), content=content,
                created_at=now())

@@ -86,10 +86,15 @@ def test_favorite_and_delete_plan():
                           status="SUCCEEDED", content=b"x", idempotency_key=str(uuid.uuid4()), body_hash="h",
                           created_at=now(), updated_at=now()))
         db.commit()
+        gen_ids = {(j.result or {}).get("planId"): j.id for j in db.scalars(select(Job).where(Job.user_id == uid))}
     assert a.delete(url).status_code == 204
     assert a.get(url).status_code == 404
     with SessionLocal() as db:
         assert db.get(PlanExport, "exp_del") is None and db.get(Job, "job_exp_del") is None
+        assert db.get(Job, gen_ids[plan["id"]]).result is None  # 지운 계획을 가리키던 생성 결과는 비운다
+        assert db.get(Job, gen_ids[child_plan_id]).result == {"planId": child_plan_id}
+    assert a.get(f"/api/v1/jobs/{gen_ids[plan['id']]}").json()["data"]["result"] is None
+    assert plan["id"] not in [r["planId"] for r in a.get("/api/v1/me/trip-requests").json()["data"]]
     kept = a.get(f"/api/v1/trip-plans/{child_plan_id}").json()["data"]
     assert kept["parentPlanId"] == plan["id"]  # 자식 계획은 남는다
 
@@ -119,6 +124,18 @@ def test_upload_validation_and_avatar():
     assert me["avatarUrl"] == up["url"]
     assert other.patch("/api/v1/me", json={"avatarMediaId": up["id"]}).json()["error"]["code"] == "MEDIA_INVALID"
     assert a.patch("/api/v1/me", json={"avatarMediaId": None}).json()["data"]["avatarUrl"] is None
+
+
+def test_upload_mpo_and_pixel_limit(monkeypatch):
+    a = user_client()
+    mpo = image("MPO", save_all=True, append_images=[Image.new("RGB", (8, 8))])  # 휴대폰 카메라 JPEG
+    r = upload(a, mpo, ctype="image/jpeg")
+    assert r.status_code == 201, r.text
+    assert r.json()["data"]["contentType"] == "image/jpeg"
+    assert Image.open(BytesIO(a.get(r.json()["data"]["url"]).content)).format == "JPEG"
+    monkeypatch.setattr("routers.uploads.MAX_PIXELS", 63)
+    r = upload(a, image())  # 8x8 = 64화소
+    assert r.status_code == 413 and r.json()["error"]["code"] == "UPLOAD_TOO_LARGE"
 
 
 def test_posts_crud_and_my_posts():

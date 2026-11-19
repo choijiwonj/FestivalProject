@@ -11,9 +11,10 @@ from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, model_validator
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session as DB
 
-from core import KST
+from core import KST, LOCAL
 from db import Base, Festival, Place, Program, SessionLocal, engine
 from routers.catalog import Category, Region
 
@@ -153,14 +154,18 @@ def run_import(db: DB, data, dry_run: bool = False) -> dict:
         for key, (_, model) in SECTIONS.items():
             created = updated = 0
             for r in records[key]:
-                row = r.model_dump()
+                existing = db.get(model, r.id)
+                # 기존 행은 파일에 적힌 필드만 덮어쓴다(빠진 필드를 기본값으로 되돌리지 않는다).
+                row = r.model_dump(exclude_unset=existing is not None)
                 if "closed_dates" in row:
                     row["closed_dates"] = [d.isoformat() for d in row["closed_dates"]]  # 일정 계산이 문자열로 비교
-                if db.get(model, r.id) is None:
+                if existing is None:
                     created += 1
+                    db.add(model(**row))
                 else:
                     updated += 1
-                db.merge(model(**row))
+                    for k, v in row.items():
+                        setattr(existing, k, v)
             db.flush()  # 축제를 먼저 넣어 프로그램 FK를 맞춘다
             counts[key] = {"created": created, "updated": updated}
         if dry_run:
@@ -184,7 +189,11 @@ def main(argv: list[str]) -> int:
     except (OSError, json.JSONDecodeError) as e:
         print(f"파일을 읽을 수 없습니다: {e}", file=sys.stderr)
         return 1
-    Base.metadata.create_all(engine)
+    if LOCAL:
+        Base.metadata.create_all(engine)
+    elif missing := [m.__tablename__ for _, m in SECTIONS.values() if not inspect(engine).has_table(m.__tablename__)]:
+        print(f"테이블이 없습니다({', '.join(missing)}). 먼저 `alembic upgrade head`를 실행해 주세요.", file=sys.stderr)
+        return 1
     try:
         with SessionLocal() as db:
             counts = run_import(db, data, dry_run="--dry-run" in argv)

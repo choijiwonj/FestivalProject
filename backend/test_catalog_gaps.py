@@ -45,6 +45,19 @@ def test_import_sample_is_idempotent(tmp_db):
     assert tmp_db.get(Place, "pl_sample_01").closed_dates == ["2027-08-21"]
 
 
+def test_reimport_keeps_fields_missing_from_file(tmp_db):
+    run_import(tmp_db, SAMPLE)
+    fest = tmp_db.get(Festival, SAMPLE["festivals"][0]["id"])
+    fest.status, fest.thumbnail_url = "CANCELLED", "https://example.com/t.jpg"  # 파일에 없는 필드
+    tmp_db.commit()
+    data = json.loads(json.dumps(SAMPLE))
+    data["festivals"][0]["name"] = "새 이름"
+    assert run_import(tmp_db, data)["festivals"] == {"created": 0, "updated": 1}
+    tmp_db.expire_all()
+    fest = tmp_db.get(Festival, SAMPLE["festivals"][0]["id"])
+    assert (fest.name, fest.status, fest.thumbnail_url) == ("새 이름", "CANCELLED", "https://example.com/t.jpg")
+
+
 def test_dry_run_writes_nothing(tmp_db):
     assert run_import(tmp_db, SAMPLE, dry_run=True)["festivals"]["created"] == 1
     assert counts(tmp_db) == [0, 0, 0]

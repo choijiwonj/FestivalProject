@@ -6,8 +6,11 @@ from pathlib import Path
 
 
 def test_migrations_match_models(tmp_path):
-    env = {**os.environ, "DATABASE_URL": f"sqlite:///{(tmp_path / 'm.db').as_posix()}", "PYTHONUTF8": "1"}
-    run = lambda *args: subprocess.run([sys.executable, "-m", "alembic", *args], cwd=Path(__file__).parent,
+    # PYTHONSAFEPATH: 현재 폴더를 sys.path에 자동으로 넣지 않는다 → `alembic` 실행 파일처럼 ini의 prepend_sys_path로만 db를 찾는다.
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{(tmp_path / 'm.db').as_posix()}", "PYTHONUTF8": "1",
+           "PYTHONSAFEPATH": "1"}
+    cli = [sys.executable, "-c", "from alembic.config import main; main()"]
+    run = lambda *args: subprocess.run([*cli, *args], cwd=Path(__file__).parent,
                                        env=env, capture_output=True, text=True)
     upgrade = run("upgrade", "head")
     assert upgrade.returncode == 0, upgrade.stderr

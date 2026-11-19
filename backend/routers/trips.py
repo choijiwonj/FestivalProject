@@ -178,6 +178,10 @@ def delete_plan(plan_id: str, user: User = Depends(require_user), db: DB = Depen
     job_ids = list(db.scalars(select(PlanExport.job_id).where(PlanExport.plan_id == p.id)))
     db.execute(delete(PlanExport).where(PlanExport.plan_id == p.id))
     db.execute(delete(Job).where(Job.id.in_(job_ids)))
+    # 생성 작업 결과가 지운 계획을 가리키지 않게 한다(JSON 조회는 DB마다 달라 파이썬에서 거른다).
+    for job in db.scalars(select(Job).where(Job.user_id == user.id, Job.type == "PLAN_GENERATION")):
+        if (job.result or {}).get("planId") == p.id:
+            job.result = None
     db.delete(p)
     db.commit()
 
