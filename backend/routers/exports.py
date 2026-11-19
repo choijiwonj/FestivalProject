@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session as DB
 from core import ApiError, aware, defer, iso, new_id, now, ok, require_user
 from db import Job, PlanExport, TripPlan, User, get_db
 from exporter import run_export
+from maintenance import EXPORT_EXPIRED_ERROR, EXPORT_KEEP_DAYS
 from routers.trips import plan_out
 
 router = APIRouter()
@@ -51,7 +52,8 @@ def export_out(record: PlanExport) -> dict:
             "planVersion": record.plan_version, "format": record.format, "dates": record.selected_dates,
             "status": record.status,
             "downloadUrl": f"/api/v1/exports/{record.id}/download" if succeeded else None,
-            "expiresAt": None, "contentType": record.content_type if succeeded else None,
+            "expiresAt": iso(aware(record.created_at) + timedelta(days=EXPORT_KEEP_DAYS)) if succeeded else None,
+            "contentType": record.content_type if succeeded else None,
             "filename": record.filename if succeeded else None, "error": record.error,
             "createdAt": iso(record.created_at), "updatedAt": iso(record.updated_at)}
 
@@ -122,7 +124,7 @@ def get_export(export_id: str, user: User = Depends(require_user), db: DB = Depe
                                     "message": "파일을 만드는 데 너무 오래 걸렸어요. 다시 시도해 주세요."}
         record.updated_at = job.updated_at = now()
         db.commit()
-    extra = {} if record.status in ("SUCCEEDED", "FAILED") else {"pollAfterSeconds": 3}
+    extra = {} if record.status in ("SUCCEEDED", "FAILED", "EXPIRED") else {"pollAfterSeconds": 3}
     return ok(export_out(record), **extra)
 
 
@@ -131,6 +133,8 @@ def download_export(export_id: str, user: User = Depends(require_user), db: DB =
     record = db.get(PlanExport, export_id)
     if record is None or record.user_id != user.id:
         raise ApiError(404, "EXPORT_NOT_FOUND", "내보내기 작업을 찾을 수 없습니다.")
+    if record.status == "EXPIRED":
+        raise ApiError(410, "EXPORT_EXPIRED", EXPORT_EXPIRED_ERROR["message"], retryable=True)
     if record.status != "SUCCEEDED":
         raise ApiError(409, "EXPORT_NOT_READY", "파일 생성이 아직 완료되지 않았습니다.")
     if record.content is None:

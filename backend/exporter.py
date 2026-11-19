@@ -319,6 +319,8 @@ def run_export(export_id: str) -> None:
             error = {"code": "EXPORT_FAILED", "message": "파일을 만들지 못했습니다.", "retryable": True}
         db.rollback()
         record = db.get(PlanExport, export_id)
+        if record is None:  # 내보내는 중에 계획·계정이 지워졌다
+            return
         job = db.get(Job, record.job_id)
         record.status = job.status = "FAILED"
         record.error = job.error = error

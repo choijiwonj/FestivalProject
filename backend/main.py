@@ -1,20 +1,21 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from core import ApiError, error_response, new_id, request_id_var
+from core import LOCAL, ApiError, error_response, limit_by_ip, limit_by_user, new_id, request_id_var
 from db import Base, SessionLocal, engine
-from routers import auth, catalog, exports, me, trips
+from routers import auth, catalog, exports, me, ops, posts, trips, uploads
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # ponytail: create_all로 테이블 생성. 운영 DB 스키마가 생기면 Alembic 마이그레이션으로 바꾼다.
-    Base.metadata.create_all(engine)
+    # 로컬 SQLite·테스트는 create_all로 바로 만들고, 운영(Postgres)은 배포 전에 `alembic upgrade head`로 맞춘다.
+    if LOCAL:
+        Base.metadata.create_all(engine)
     if os.getenv("SEED_DEMO") == "1":
         from seed import seed
         with SessionLocal() as db:
@@ -25,7 +26,17 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="축제잇길 API", version="0.3", lifespan=lifespan)
 
 v1 = APIRouter(prefix="/api/v1")
-for r in (auth, catalog, trips, exports, me):
+# 로컬(SQLite)·테스트는 계획 생성을 수십 번 하므로 생성 한도만 크게 둔다.
+TRIP_LIMIT_PER_HOUR = 1000 if LOCAL else 10
+v1.include_router(auth.router)
+v1.include_router(catalog.router, dependencies=[
+    Depends(limit_by_ip("catalog", 120, 60)),
+    Depends(limit_by_user("locations", 30, 60, "GET", "/locations/search"))])
+v1.include_router(trips.router, dependencies=[
+    Depends(limit_by_user("trips", TRIP_LIMIT_PER_HOUR, 3600, "POST", "/trip-requests", "/regenerations"))])
+v1.include_router(posts.router, dependencies=[Depends(limit_by_user("posts", 30, 3600, "POST", "/posts"))])
+v1.include_router(uploads.router, dependencies=[Depends(limit_by_user("uploads", 30, 3600, "POST", "/uploads"))])
+for r in (exports, me, ops):
     v1.include_router(r.router)
 app.include_router(v1)
 

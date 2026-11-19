@@ -1,15 +1,17 @@
 """프로필·여행 기본 설정 (G01 F20, G07 F22~F24)."""
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Response
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import delete
 from sqlalchemy.orm import Session as DB
 from sqlalchemy.orm.exc import StaleDataError
 
-from core import ApiError, field, iso, now, ok, require_user, verify_location
-from db import User, UserSettings, get_db
+from core import SESSION_COOKIE, ApiError, field, iso, now, ok, require_user, verify_location
+from db import Job, PlanExport, Post, Session, TripPlan, TripRequest, Upload, User, UserSettings, get_db
 from routers.auth import user_out
 from routers.catalog import Interest
+from routers.uploads import owned_upload, upload_url
 
 router = APIRouter()
 
@@ -83,12 +85,24 @@ def patch_me(body: ProfilePatch, user: User = Depends(require_user), db: DB = De
             raise ApiError(422, "INVALID_NICKNAME", "닉네임은 2~20자로 입력해 주세요.", field("nickname", "length"))
         user.nickname = nick
     if "avatarMediaId" in sent:
-        # ponytail: 사진 업로드(media API) 연결 전이라 초기화(null)만 허용.
+        # avatarMediaId는 POST /uploads로 받은 본인 사진 id, null이면 초기화
         if body.avatarMediaId is not None:
-            raise ApiError(422, "MEDIA_INVALID", "사진 업로드는 아직 준비 중입니다.", field("avatarMediaId", "not_ready"))
-        user.avatar_url = None
+            owned_upload(db, user, body.avatarMediaId, "avatarMediaId")
+        user.avatar_url = upload_url(body.avatarMediaId)
     db.commit()
     return ok(user_out(user))
+
+
+@router.delete("/me", status_code=204)
+def delete_me(user: User = Depends(require_user), db: DB = Depends(get_db)):
+    # FK를 가리키는 쪽부터 지운다: 후기→사진, 내보내기→작업·계획, 작업·계획→요청, 마지막에 회원.
+    for model in (Session, UserSettings, Post, PlanExport, Job, TripPlan, TripRequest, Upload):
+        db.execute(delete(model).where(model.user_id == user.id))
+    db.execute(delete(User).where(User.id == user.id))
+    db.commit()
+    resp = Response(status_code=204)
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
 
 
 @router.get("/me/settings")
