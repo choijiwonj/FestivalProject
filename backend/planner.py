@@ -14,7 +14,7 @@ from db import Festival, Job, Place, Program, SessionLocal, TripPlan, TripReques
 from recommendations import DEFAULT_MODEL, MAX_CANDIDATES, RecommendationResult, recommend_places
 from routers.catalog import WINDOW_DAYS, Interest
 from routing import get_car_route
-from scheduling import schedule_car_trip
+from scheduling import opening_windows, schedule_car_trip
 from transit import TransitRouteSession
 from simulation_data import (enabled as simulation_enabled, place_for_plan, festival_for_plan,
                              enrich_stops, lodging_cost)
@@ -23,6 +23,7 @@ from budgeting import calculate_budget
 log = logging.getLogger(__name__)
 MAX_TRIP_DAYS = 2  # MVP 제안값(정의서 9장 미확정). 확정되면 여기만 바꾼다.
 RECOMMENDATION_RADIUS_M = 5000
+FALLBACK_PLACES = 3
 
 
 class OriginIn(BaseModel):
@@ -125,14 +126,27 @@ def validate_trip(db: DB, inp: TripRequestInput) -> dict:
 
 # ---- 생성 ----
 
-def nearby_recommendation_candidates(db: DB, lat: float, lng: float, required_ids: list[str]) -> list[Place]:
+def open_on_any_day(place, trip_days: list[date]) -> bool:
+    """영업시간이 없으면 미확인으로 보고 남긴다. 모든 여행 날짜에 휴무로 확인된 곳만 뺀다."""
+    return any(day.isoformat() not in (place.closed_dates or [])
+               and (not isinstance(place.opening_hours, dict) or not place.opening_hours or opening_windows(place, day))
+               for day in trip_days)
+
+
+def matches_interests(place, interests: list[str]) -> bool:
+    return bool(set(place.tags or []) & set(interests))
+
+
+def nearby_recommendation_candidates(db: DB, lat: float, lng: float, required_ids: list[str],
+                                     trip_days: list[date], interests: list[str]) -> list[Place]:
+    """반경 안 후보를 관심사 일치 → 거리 순으로 고른다. 필수 장소는 호출부에서 따로 넣는다."""
     nearby = []
-    for place in db.scalars(select(Place).where(Place.id.not_in(required_ids), Place.category != "LODGING")):
-        distance = distance_m(lat, lng, place.lat, place.lng)
-        if distance <= RECOMMENDATION_RADIUS_M:
-            nearby.append((distance, place))
-    nearby.sort(key=lambda item: (item[0], item[1].id))
-    return [place for _, place in nearby]
+    for row in db.scalars(select(Place).where(Place.id.not_in(required_ids), Place.category != "LODGING")):
+        distance = distance_m(lat, lng, row.lat, row.lng)
+        if distance <= RECOMMENDATION_RADIUS_M and open_on_any_day(place := place_for_plan(row), trip_days):
+            nearby.append((not matches_interests(place, interests), distance, place.id, place))
+    nearby.sort(key=lambda item: item[:3])
+    return [item[-1] for item in nearby]
 
 
 def find_overnight_lodging(db: DB, inp: dict, venue: dict) -> Place | None:
@@ -150,6 +164,14 @@ def find_overnight_lodging(db: DB, inp: dict, venue: dict) -> Place | None:
         if distance <= RECOMMENDATION_RADIUS_M:
             candidates.append((place.id not in inp["requiredPlaceIds"], distance, place.id, place))
     return min(candidates)[-1] if candidates else None
+
+
+def fallback_recommendations(candidates: list[Place], interests: list[str]) -> list[dict]:
+    """Gemini 실패 시 이미 관심사·거리 순으로 정렬된 후보 앞쪽을 쓴다."""
+    return [{"placeId": place.id, "priority": rank,
+             "reason": "관심사와 맞고 축제장과 가까운 곳입니다." if matches_interests(place, interests)
+             else "축제장과 가까운 곳입니다."}
+            for rank, place in enumerate(candidates[:FALLBACK_PLACES], 1)]
 
 
 def recommend_demo_place(candidates: list[Place]) -> dict:
@@ -249,21 +271,22 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
         warnings.append({"code": "FESTIVAL_LOCATION_UNKNOWN",
                          "message": "축제장 좌표를 확인할 수 없어 주변 장소를 추천하지 못했습니다.", "stopIds": []})
     else:
-        candidates = [place_for_plan(place) for place in nearby_recommendation_candidates(db, lat, lng, inp["requiredPlaceIds"])]
+        candidates = nearby_recommendation_candidates(db, lat, lng, inp["requiredPlaceIds"],
+                                                      [date.fromisoformat(day["date"]) for day in days], inp["interests"])
         if api_key and (candidates or places):
             model = os.getenv("GEMINI_MODEL", "").strip() or DEFAULT_MODEL
             candidates = candidates[:MAX_CANDIDATES - len(places)]
             try:
-                result = recommend_places(api_key, model, inp, fest, places + candidates)
+                result = recommend_places(api_key, model, inp, fest, places + candidates, programs)
             except ApiError as exc:
                 if not exc.retryable:
                     raise
-                log.warning("Gemini recommendation failed, using nearest-place fallback: %s", exc.code)
+                log.warning("Gemini recommendation failed, using interest/distance fallback: %s", exc.code)
                 warnings.append({"code": "AI_RECOMMENDATION_FALLBACK",
-                                 "message": "AI 추천을 완료하지 못해 가까운 주변 장소로 대체했습니다." if candidates
+                                 "message": "AI 추천을 완료하지 못해 관심사와 거리 기준으로 주변 장소를 골랐습니다." if candidates
                                  else "AI 추천을 완료하지 못해 축제와 필수 일정만 구성했습니다.", "stopIds": []})
                 result = RecommendationResult.model_validate({
-                    "recommendations": [recommend_demo_place(candidates)] if candidates else [],
+                    "recommendations": fallback_recommendations(candidates, inp["interests"]),
                     "conflicts": [],
                 })
             candidate_by_id = {place.id: place for place in candidates}
