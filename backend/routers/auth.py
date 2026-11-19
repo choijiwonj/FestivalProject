@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from urllib.parse import urlencode
 
@@ -6,6 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DB
 
 from core import (COOKIE_SECURE, DEV_LOGIN, KAKAO_CLIENT_SECRET, KAKAO_REDIRECT_URI, KAKAO_REST_API_KEY,
@@ -15,6 +17,7 @@ from db import User, UserSettings, get_db
 router = APIRouter()
 PROVIDERS = {"kakao"} | ({"dev"} if DEV_LOGIN else set())
 STATE_COOKIE = "oauth_state"
+log = logging.getLogger(__name__)
 
 
 def user_out(u: User) -> dict:
@@ -29,14 +32,20 @@ def safe_return_to(path: str | None) -> str:
 
 
 def upsert_user(db: DB, provider: str, provider_user_id: str, nickname: str | None, email: str | None) -> User:
-    user = db.scalar(select(User).where(User.provider == provider, User.provider_user_id == provider_user_id))
+    query = select(User).where(User.provider == provider, User.provider_user_id == provider_user_id)
+    user = db.scalar(query)
     if user:
         return user
     user = User(id=new_id("usr"), provider=provider, provider_user_id=provider_user_id,
                 nickname=(nickname or "여행자").strip()[:20] or "여행자", email=email, created_at=now())
     db.add(user)
     db.add(UserSettings(user_id=user.id, interests=[]))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 동시에 처음 로그인하면 다른 요청이 먼저 만든 사용자를 쓴다.
+        db.rollback()
+        return db.scalars(query).one()
     return user
 
 
@@ -84,7 +93,8 @@ def callback(provider: str, request: Request, code: str | None = None, state: st
              db: DB = Depends(get_db)):
     try:
         saved_state, return_to = json.loads(request.cookies.get(STATE_COOKIE, ""))
-    except ValueError:
+    except (ValueError, TypeError):
+        log.warning("Kakao login failed: missing or invalid state cookie")
         return login_failed()
     if provider != "kakao" or not code or not state or not secrets.compare_digest(state, saved_state):
         return login_failed()
@@ -99,10 +109,14 @@ def callback(provider: str, request: Request, code: str | None = None, state: st
                        headers={"Authorization": f"Bearer {tok.json()['access_token']}"})
         me.raise_for_status()
         info = me.json()
-    except (httpx.HTTPError, KeyError, ValueError):
+        kakao_id = str(info["id"])
+        account = info.get("kakao_account") or {}
+    except (httpx.HTTPError, KeyError, ValueError, TypeError, AttributeError) as exc:
+        response = getattr(exc, "response", None)
+        log.warning("Kakao login failed: %s status=%s", type(exc).__name__,
+                    response.status_code if response is not None else None)
         return login_failed()
-    account = info.get("kakao_account") or {}
-    user = upsert_user(db, "kakao", str(info["id"]), (account.get("profile") or {}).get("nickname"),
+    user = upsert_user(db, "kakao", kakao_id, (account.get("profile") or {}).get("nickname"),
                        account.get("email"))
     return login_redirect(db, user, safe_return_to(return_to))
 

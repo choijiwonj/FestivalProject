@@ -255,6 +255,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
             except ApiError as exc:
                 if not exc.retryable:
                     raise
+                log.warning("Gemini recommendation failed, using nearest-place fallback: %s", exc.code)
                 warnings.append({"code": "AI_RECOMMENDATION_FALLBACK",
                                  "message": "AI 추천을 완료하지 못해 가까운 주변 장소로 대체했습니다." if candidates
                                  else "AI 추천을 완료하지 못해 축제와 필수 일정만 구성했습니다.", "stopIds": []})
@@ -286,6 +287,8 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
             days[0]["stops"].append(stop(type="PLACE", placeId=recommended_place.id, name=recommended_place.name,
                                          required=False, recommendationReason=reason,
                                          sourceUrl=recommended_place.source_url))
+            warnings.append({"code": "AI_RECOMMENDATION_FALLBACK", "message": "AI 추천 대신 가까운 장소를 넣었습니다.",
+                             "stopIds": [days[0]["stops"][-1]["id"]]})
         else:
             warnings.append({"code": "NO_CANDIDATES",
                              "message": "필수 장소를 제외한 축제장 반경 5km 안에 추천 후보가 없습니다.", "stopIds": []})
@@ -322,6 +325,7 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
                 scheduled = schedule_car_trip(days, place_by_id, origin_location, (lat, lng), transit_key,
                                               warnings, conflicts, lodging_link, route_loader=transit_session.schedule_loader)
             except ApiError as exc:
+                log.warning('transit route failed, saving plan without schedule: %s', exc.code)
                 warnings.append({'code': exc.code, 'message': exc.message, 'stopIds': []})
             for warning in warnings:
                 warning['message'] = warning['message'].replace('자동차', '대중교통')
@@ -330,11 +334,22 @@ def build_plan(db: DB, req: TripRequest) -> TripPlan:
     if is_car and not link_overnight:
         # 2일차에는 확인되지 않은 숙소 대신 최초 출발지를 표시하지 않는다.
         if len(days) == 1 or not overnight_car or not route_key or any(s["type"] == "FESTIVAL" for s in first_day["stops"]):
-            add_initial_route(inp, days[:1] if overnight_car else days, venue, warnings, route_key)
+            try:
+                add_initial_route(inp, days[:1] if overnight_car else days, venue, warnings, route_key)
+            except ApiError as exc:
+                log.warning("car route failed, saving plan without route: %s", exc.code)
+                warnings.append({"code": "ROUTE_UNAVAILABLE", "message": exc.message, "stopIds": []})
     if is_car and (link_overnight or (len(days) == 1 and first_day["legs"] and not conflicts)):
         place_by_id = {s["placeId"]: db.get(Place, s["placeId"]) for s in first_day["stops"] if s["type"] == "PLACE"}
-        scheduled = schedule_car_trip(days, place_by_id, origin_location, (lat, lng), route_key,
-                                      warnings, conflicts, lodging_link)
+        # 경로 조회가 중간에 실패하면 일부만 계산된 경고·충돌이 남지 않게 복사본에 쌓고 성공 시에만 반영한다.
+        car_warnings, car_conflicts = warnings[:], conflicts[:]
+        try:
+            scheduled = schedule_car_trip(days, place_by_id, origin_location, (lat, lng), route_key,
+                                          car_warnings, car_conflicts, lodging_link)
+            warnings[:], conflicts[:] = car_warnings, car_conflicts
+        except ApiError as exc:
+            log.warning("car schedule route failed, saving plan without schedule: %s", exc.code)
+            warnings.append({"code": "ROUTE_UNAVAILABLE", "message": exc.message, "stopIds": []})
     if scheduled:
         warnings = [w for w in warnings if w["code"] != "ROUTE_PARTIAL"]
     else:
@@ -393,23 +408,27 @@ def make_budget(inp: dict, days: list) -> dict:
             "lodgingIncluded": inp["lodgingPreference"] != "SELF_ARRANGED"}
 
 
-# ponytail: FastAPI BackgroundTasks로 같은 프로세스에서 실행. Vercel 서버리스는 응답 후 프로세스가 멈출 수 있으니
-# 배포 전에 Upstash Workflow 단계 실행으로 옮긴다(기술 스택 정리표 5장).
+# ponytail: core.defer로 실행. 로컬은 BackgroundTasks, Vercel은 요청 안에서 동기 실행이라 생성이
+# Vercel 함수 maxDuration 안에 끝나야 한다. 생성이 더 길어지면 큐(Upstash Workflow 등)로 옮긴다.
 def run_generation(job_id: str) -> None:
     with SessionLocal() as db:
         try:
-            job = db.get(Job, job_id)
-            job.status, job.stage, job.updated_at = "RUNNING", "SCHEDULING", now()
+            # 시간 초과로 이미 실패 처리된 작업은 다시 시작하지 않는다(QUEUED일 때만 시작).
+            if not db.query(Job).filter(Job.id == job_id, Job.status == "QUEUED").update(
+                    {"status": "RUNNING", "stage": "SCHEDULING", "updated_at": now()}):
+                db.rollback()
+                return
             db.commit()
+            job = db.get(Job, job_id)
 
             plan = build_plan(db, db.get(TripRequest, job.request_id))
             db.add(plan)
-            job.status, job.stage, job.result, job.updated_at = (
-                "SUCCEEDED",
-                "SAVING",
-                {"planId": plan.id},
-                now(),
-            )
+            # 시간 초과로 이미 실패 처리됐으면 계획을 저장하지 않는다(RUNNING일 때만 완료로 바꾼다).
+            saved = db.query(Job).filter(Job.id == job_id, Job.status == "RUNNING").update(
+                {"status": "SUCCEEDED", "stage": "SAVING", "result": {"planId": plan.id}, "updated_at": now()})
+            if not saved:
+                db.rollback()
+                return
             db.commit()
 
         except ApiError as exc:

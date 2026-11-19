@@ -27,6 +27,8 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1") == "1"
 DEV_LOGIN = os.getenv("DEV_LOGIN") == "1"
 if DEV_LOGIN and not LOCAL:
     raise RuntimeError("DEV_LOGIN=1은 로컬(SQLite) 전용입니다. 배포 환경에서는 끄세요.")
+if os.getenv("SEED_DEMO") == "1" and not LOCAL:
+    raise RuntimeError("SEED_DEMO=1은 로컬(SQLite) 전용입니다. 배포 환경에서는 끄세요.")
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "")
 KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "")
 KAKAO_REDIRECT_URI = os.getenv("KAKAO_REDIRECT_URI", "http://localhost:3000/api/v1/auth/callback/kakao")
@@ -88,11 +90,21 @@ def paginate(items: list, cursor: str | None, limit: int) -> tuple[list, dict]:
     try:
         start = int(base64.urlsafe_b64decode(cursor.encode()).decode()) if cursor else 0
     except ValueError:
+        start = -1
+    if start < 0:
         raise ApiError(400, "INVALID_CURSOR", "잘못된 페이지 정보입니다.", field("cursor", "invalid"))
     end = start + limit
     has_next = end < len(items)
     nxt = base64.urlsafe_b64encode(str(end).encode()).decode() if has_next else None
     return items[start:end], {"nextCursor": nxt, "hasNext": has_next}
+
+
+def defer(background, fn, *args) -> None:
+    """Vercel은 응답 뒤 함수가 멈출 수 있어 요청 안에서 바로 실행한다. 그 밖에서는 BackgroundTasks."""
+    if os.getenv("VERCEL"):
+        fn(*args)
+    else:
+        background.add_task(fn, *args)
 
 
 def distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -128,7 +140,7 @@ def create_session(db: DB, user: User) -> str:
 def check_csrf(request: Request, s: Session) -> None:
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return
-    if not hmac.compare_digest(request.headers.get("X-CSRF-Token", ""), s.csrf_token):
+    if not hmac.compare_digest(request.headers.get("X-CSRF-Token", "").encode(), s.csrf_token.encode()):
         raise ApiError(403, "CSRF_INVALID", "요청을 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.")
 
 

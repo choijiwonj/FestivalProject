@@ -1,5 +1,6 @@
 """자차 여행의 날짜별 필수 일정, 추천 장소 및 이동 시간을 계산한다."""
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Callable
@@ -8,6 +9,7 @@ from core import KST, iso
 from db import Place
 from routing import CarRoute, get_car_route
 
+log = logging.getLogger(__name__)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 Coordinates = tuple[float, float]
 
@@ -61,11 +63,13 @@ def opening_windows(place: Place, day: date) -> list[tuple[datetime, datetime]]:
     windows = []
     for period in periods:
         if not isinstance(period, dict):
+            log.warning("malformed opening_hours period skipped: place=%s", place.id)
             continue
         try:
             start = datetime.combine(day, time.fromisoformat(period["open"]), KST)
             end = datetime.combine(day, time.fromisoformat(period["close"]), KST)
         except (KeyError, TypeError, ValueError):
+            log.warning("malformed opening_hours period skipped: place=%s", place.id)
             continue
         if start < end:
             windows.append((start, end))

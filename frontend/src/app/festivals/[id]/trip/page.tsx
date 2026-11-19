@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ApiFailure, api, loginUrl, toFailure, useApi, useSession } from "@/lib/api";
+import { ApiFailure, api, loginUrl, toFailure, useApi, useSession, uuid } from "@/lib/api";
 import { INTERESTS, LODGING, time } from "@/lib/labels";
 import type { FestivalDetail, Location, Program, UserSettings, ValidationResult } from "@/lib/types";
 import { ErrorBox, Loading, button, input } from "../../../ui";
@@ -21,6 +21,8 @@ type Form = {
   requiredProgramIds?: string[];
   additionalRequests?: string;
 };
+
+const MAX_REQUIRED = 10; // TripRequestInput.requiredProgramIds max_length
 
 function definedOnly(f: Form): Form {
   return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined)) as Form;
@@ -44,6 +46,7 @@ export default function TripPage() {
   const [error, setError] = useState<ApiFailure | null>(null);
   const [busy, setBusy] = useState(false);
   const idemKey = useRef<string | null>(null);
+  const [defaultsFailed, setDefaultsFailed] = useState(false);
 
   // F23: 저장된 기본값은 사용자가 아직 고르지 않은 칸에만 채운다(늦게 와도 입력을 덮어쓰지 않음, T13).
   const loggedIn = !!session?.user;
@@ -62,7 +65,10 @@ export default function TripPage() {
           }),
           ...definedOnly(f),
         })),
-      (e) => console.warn("기본값을 불러오지 못했어요", e), // 기본값을 못 불러와도 입력은 계속할 수 있다
+      (e) => {
+        console.warn("기본값을 불러오지 못했어요", e); // 기본값을 못 불러와도 입력은 계속할 수 있다
+        setDefaultsFailed(true);
+      },
     );
   }, [loggedIn]);
 
@@ -120,7 +126,7 @@ export default function TripPage() {
 
   const create = () =>
     run(async () => {
-      idemKey.current ??= crypto.randomUUID(); // 중복 클릭은 같은 키 → 한 작업(T03)
+      idemKey.current ??= uuid(); // 중복 클릭은 같은 키 → 한 작업(T03)
       const r = await api<{ jobId: string }>("/trip-requests", {
         method: "POST",
         json: payload(),
@@ -149,6 +155,7 @@ export default function TripPage() {
       <p className="text-sm opacity-60">{["1/3 기본 조건", "2/3 취향·필수 일정", "3/3 입력 확인"][step]}</p>
       <h1 className="text-xl font-bold">{f.name}</h1>
       {error && <ErrorBox error={error} />}
+      {defaultsFailed && <p className="text-sm opacity-60">저장한 기본값을 불러오지 못했어요.</p>}
 
       {step === 0 && (
         <>
@@ -190,7 +197,7 @@ export default function TripPage() {
             <label className="text-sm">
               인원
               <input type="number" min={1} max={20} placeholder="1" value={form.travelers ?? ""}
-                onChange={(e) => update({ travelers: e.target.value === "" ? undefined : Number(e.target.value) })} className={input} />
+                onChange={(e) => update({ travelers: e.target.value === "" ? undefined : Math.min(20, Math.max(1, Math.trunc(Number(e.target.value)) || 1)) })} className={input} />
             </label>
             <label className="text-sm">
               총 예산(원, 비우면 미입력)
@@ -233,13 +240,13 @@ export default function TripPage() {
             </label>
           )}
           <fieldset>
-            <legend className="mb-1 text-sm font-semibold">꼭 볼 프로그램</legend>
+            <legend className="mb-1 text-sm font-semibold">꼭 볼 프로그램 (최대 {MAX_REQUIRED}개)</legend>
             {programs.error && <ErrorBox error={programs.error} />}
             {programs.data?.filter((p) => pickable(p, form)).map((p) => {
               const on = form.requiredProgramIds?.includes(p.id) ?? false;
               return (
                 <label key={p.id} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={on} onChange={() => update({
+                  <input type="checkbox" checked={on} disabled={!on && (form.requiredProgramIds?.length ?? 0) >= MAX_REQUIRED} onChange={() => update({
                     requiredProgramIds: on ? form.requiredProgramIds!.filter((x) => x !== p.id) : [...(form.requiredProgramIds ?? []), p.id],
                   })} />
                   {p.startAt!.slice(5, 10)} {time(p.startAt)} · {p.name}
@@ -271,7 +278,7 @@ export default function TripPage() {
             <dt className="opacity-60">인원·예산</dt>
             <dd>{form.travelers ?? 1}명 · {form.budgetKrw == null ? "예산 미입력" : `총 ${form.budgetKrw.toLocaleString("ko-KR")}원`}</dd>
           </dl>
-          {checked.warnings.map((w) => <p key={w.code} className="text-sm">ℹ {w.message}</p>)}
+          {checked.warnings.map((w, i) => <p key={`${w.code}-${i}`} className="text-sm">ℹ {w.message}</p>)}
           <div className="flex gap-2">
             <button onClick={() => setStep(1)} className="rounded-lg border border-black/20 px-4">수정</button>
             <button disabled={busy} onClick={create} className={`${button} flex-1`}>{busy ? "요청 중…" : "이 조건으로 계획 만들기"}</button>
@@ -302,7 +309,7 @@ function OriginPicker({ value, onChange }: { value?: Location; onChange: (l: Loc
       <div className="flex gap-2">
         <label htmlFor="origin-q" className="sr-only">출발지 검색</label>
         <input id="origin-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="역·주소·장소 이름" className={input}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); search(); } }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (q.trim().length >= 2) search(); } }} />
         <button type="button" disabled={q.trim().length < 2} onClick={search} className="shrink-0 rounded-lg border border-black/20 px-3 disabled:opacity-40">검색</button>
       </div>
       {error && <ErrorBox error={error} />}

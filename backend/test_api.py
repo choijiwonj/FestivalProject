@@ -338,8 +338,7 @@ def test_regeneration_preserves_parent_and_replays(client):
         assert anon.post(url, json=body, headers=headers).status_code in (401, 403)
 
 
-def test_plan_exports_pdf_png_zip_and_idempotency(client, monkeypatch, tmp_path):
-    monkeypatch.setenv("EXPORT_STORAGE_DIR", str(tmp_path))
+def test_plan_exports_pdf_png_zip_and_idempotency(client, monkeypatch):
     plan = generated_plan(client)
     url = f"/api/v1/trip-plans/{plan['id']}/exports"
 
@@ -427,12 +426,13 @@ def test_unavailable_route_is_not_saved_as_zero_minutes(client, monkeypatch, con
     assert any(w["code"] == "ROUTE_UNAVAILABLE" for w in plan["warnings"])
 
 
-def test_route_provider_permission_error_fails_generation(client, monkeypatch):
-    mock_car_directions(monkeypatch, 403, {"msg": "provider detail"})
-    job = generate_trip(client)
-    assert job["status"] == "FAILED" and job["result"] is None
-    assert job["error"]["code"] == "PROVIDER_UNAVAILABLE"
-    assert "provider detail" not in job["error"]["message"]
+@pytest.mark.parametrize("status_code", [403, 503])
+def test_route_provider_error_keeps_plan_with_warning(client, monkeypatch, status_code):
+    mock_car_directions(monkeypatch, status_code, {"msg": "provider detail"})
+    plan = generated_plan(client)
+    assert all(day["legs"] == [] for day in plan["days"])
+    warning, = [w for w in plan["warnings"] if w["code"] == "ROUTE_UNAVAILABLE"]
+    assert "provider detail" not in warning["message"]
 
 
 SCHEDULE_ORIGIN = (127.38, 36.35)
@@ -649,3 +649,63 @@ def test_missing_hotel_arrival_leg_keeps_known_second_day_routes(client, monkeyp
     assert all(leg["toStopId"] != lodging["id"] for leg in first["legs"])
     assert any(w["code"] == "LODGING_ROUTE_UNAVAILABLE" for w in plan["warnings"])
     assert second["legs"][0]["fromStopId"] == second["stops"][0]["id"]
+
+
+def test_export_download_is_served_from_db_without_storage_dir(client, monkeypatch):
+    from db import PlanExport
+    plan = generated_plan(client)
+    accepted = client.post(f"/api/v1/trip-plans/{plan['id']}/exports", json={"format": "PDF", "version": plan["version"]},
+                           headers={"Idempotency-Key": str(uuid.uuid4())}).json()["data"]
+    record = client.get(accepted["statusUrl"]).json()["data"]
+    downloaded = client.get(record["downloadUrl"])
+    assert downloaded.status_code == 200 and downloaded.content.startswith(b"%PDF")
+    assert downloaded.headers["content-type"] == "application/pdf"
+    assert "filename*=UTF-8''" in downloaded.headers["content-disposition"]
+    with SessionLocal() as db:
+        row = db.get(PlanExport, accepted["exportId"])
+        assert row.content == downloaded.content and row.storage_key is None
+
+
+def test_stale_export_is_marked_timed_out(client):
+    from db import Job, PlanExport
+    plan = generated_plan(client)
+    accepted = client.post(f"/api/v1/trip-plans/{plan['id']}/exports", json={"format": "PDF", "version": plan["version"]},
+                           headers={"Idempotency-Key": str(uuid.uuid4())}).json()["data"]
+    with SessionLocal() as db:
+        row, job = db.get(PlanExport, accepted["exportId"]), db.get(Job, accepted["jobId"])
+        row.status = job.status = "RUNNING"
+        row.updated_at = job.updated_at = datetime.utcnow() - timedelta(minutes=11)
+        db.commit()
+    record = client.get(accepted["statusUrl"]).json()["data"]
+    assert record["status"] == "FAILED" and record["error"]["code"] == "EXPORT_TIMEOUT" and record["error"]["retryable"]
+    with SessionLocal() as db:
+        assert db.get(Job, accepted["jobId"]).status == "FAILED"
+
+
+def test_generation_does_not_overwrite_job_failed_meanwhile(client, monkeypatch):
+    from db import Job, TripPlan
+    real_build = planner.build_plan
+
+    def build_after_timeout(db, req):
+        with SessionLocal() as other:  # get_job이 시간 초과로 먼저 실패 처리한 상황
+            job = other.scalar(planner.select(Job).where(Job.request_id == req.id))
+            job.status, job.error = "FAILED", {"code": "GENERATION_TIMEOUT", "message": "", "retryable": True}
+            other.commit()
+        return real_build(db, req)
+    monkeypatch.setattr(planner, "build_plan", build_after_timeout)
+    job = generate_trip(client)
+    assert job["status"] == "FAILED" and job["error"]["code"] == "GENERATION_TIMEOUT", job
+    with SessionLocal() as db:
+        request_id = db.get(Job, job["id"]).request_id
+        assert db.scalar(planner.select(TripPlan).where(TripPlan.request_id == request_id)) is None
+
+
+def test_non_ascii_csrf_token_is_rejected_not_crashing(client):
+    r = client.post("/api/v1/trip-requests/validate", json=trip(), headers={"X-CSRF-Token": "토큰".encode()})
+    assert r.status_code == 403 and r.json()["error"]["code"] == "CSRF_INVALID"
+
+
+def test_negative_cursor_is_invalid(client):
+    import base64
+    r = client.get("/api/v1/me/trip-plans", params={"cursor": base64.urlsafe_b64encode(b"-1").decode()})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "INVALID_CURSOR"

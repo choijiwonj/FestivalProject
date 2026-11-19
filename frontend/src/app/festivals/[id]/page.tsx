@@ -15,7 +15,7 @@ export default function FestivalPage() {
   const f = fest.data;
 
   if (fest.loading) return <Loading />;
-  if (fest.error || !f) return fest.error ? <ErrorBox error={fest.error} /> : null;
+  if (fest.error || !f) return fest.error ? <ErrorBox error={fest.error} onRetry={fest.retry} /> : null;
 
   return (
     <div className="space-y-5 pb-20">
@@ -44,7 +44,7 @@ export default function FestivalPage() {
       <section className="space-y-2">
         <h2 className="font-semibold">프로그램</h2>
         {programs.loading && <Loading />}
-        {programs.error && <ErrorBox error={programs.error} />}
+        {programs.error && <ErrorBox error={programs.error} onRetry={programs.retry} />}
         {programs.data?.length === 0 && <p className="text-sm opacity-60">등록된 프로그램이 없어요.</p>}
         <ul className="space-y-1 text-sm">
           {programs.data?.map((p) => (
