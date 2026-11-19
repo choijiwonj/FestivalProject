@@ -48,6 +48,14 @@ def create_upload(file: UploadFile, user: User = Depends(require_user), db: DB =
                        field("file", "too_large"))
     out = BytesIO()
     img.save(out, fmt, quality=90)  # 다시 저장하다 실패하면 서버 오류(500)로 남긴다
+    # 압축률이 높은 원본은 재인코딩 후 커질 수 있으므로 최종 응답 용량도 제한한다.
+    while out.tell() > MAX_BYTES:
+        width, height = img.size
+        if max(width, height) <= 1:
+            raise ApiError(413, "UPLOAD_TOO_LARGE", "사진 크기를 줄여 다시 올려 주세요.")
+        img.thumbnail((max(1, int(width * 0.75)), max(1, int(height * 0.75))), Image.Resampling.LANCZOS)
+        out = BytesIO()
+        img.save(out, fmt, quality=90)
     content = out.getvalue()
     u = Upload(id=new_id("upl"), user_id=user.id, content_type=TYPES[fmt], size=len(content), content=content,
                created_at=now())

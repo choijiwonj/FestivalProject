@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session as DB
 from sqlalchemy.orm.exc import StaleDataError
 
 from core import SESSION_COOKIE, ApiError, field, iso, now, ok, require_user, verify_location
-from db import Job, PlanExport, Post, Session, TripPlan, TripRequest, Upload, User, UserSettings, get_db
+from db import Job, LocalCredential, PlanExport, Post, Session, TripPlan, TripRequest, Upload, User, UserSettings, get_db
 from routers.auth import user_out
 from routers.catalog import Interest
 from routers.uploads import owned_upload, upload_url
@@ -96,7 +96,7 @@ def patch_me(body: ProfilePatch, user: User = Depends(require_user), db: DB = De
 @router.delete("/me", status_code=204)
 def delete_me(user: User = Depends(require_user), db: DB = Depends(get_db)):
     # FK를 가리키는 쪽부터 지운다: 후기→사진, 내보내기→작업·계획, 작업·계획→요청, 마지막에 회원.
-    for model in (Session, UserSettings, Post, PlanExport, Job, TripPlan, TripRequest, Upload):
+    for model in (Session, UserSettings, LocalCredential, Post, PlanExport, Job, TripPlan, TripRequest, Upload):
         db.execute(delete(model).where(model.user_id == user.id))
     db.execute(delete(User).where(User.id == user.id))
     db.commit()

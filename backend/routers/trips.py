@@ -59,10 +59,21 @@ def regenerate(plan_id: str, body: RegenerationInput, background: BackgroundTask
                       idempotency_key=key, body_hash=digest, created_at=now())
     job = Job(id=new_id("job"), user_id=user.id, request_id=req.id, type="PLAN_GENERATION",
               status="QUEUED", stage="VALIDATING", created_at=now(), updated_at=now())
-    db.add_all([req, job])
     try:
+        db.add(req)
+        db.flush()  # Persist the parent before inserting its referencing job.
+        db.add(job)
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
+        original = exc.orig
+        diag = getattr(original, "diag", None)
+        print(
+            "[trip DB error]",
+            "code:", getattr(original, "sqlstate", None),
+            "table:", getattr(diag, "table_name", None),
+            "constraint:", getattr(diag, "constraint_name", None),
+            flush=True,
+        )
         db.rollback()
         response = replay()
         if response is None:
@@ -70,6 +81,7 @@ def regenerate(plan_id: str, body: RegenerationInput, background: BackgroundTask
         return response
     defer(background, run_generation, job.id)
     return accepted(req, job)
+
 
 
 def job_out(j: Job) -> dict:
@@ -119,10 +131,21 @@ def create_trip(body: TripRequestInput, background: BackgroundTasks,
                       body_hash=body_hash, created_at=now())
     job = Job(id=new_id("job"), user_id=user.id, request_id=req.id, type="PLAN_GENERATION", status="QUEUED",
               stage="VALIDATING", created_at=now(), updated_at=now())
-    db.add_all([req, job])
     try:
+        db.add(req)
+        db.flush()  # Persist the parent before inserting its referencing job.
+        db.add(job)
         db.commit()
-    except IntegrityError:  # 동시 중복 클릭: 먼저 들어간 요청을 돌려준다
+    except IntegrityError as exc:
+        original = exc.orig
+        diag = getattr(original, "diag", None)
+        print(
+            "[trip DB error]",
+            "code:", getattr(original, "sqlstate", None),
+            "table:", getattr(diag, "table_name", None),
+            "constraint:", getattr(diag, "constraint_name", None),
+            flush=True,
+        )
         db.rollback()
         if resp := replay():
             return resp

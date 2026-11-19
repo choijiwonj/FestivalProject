@@ -157,7 +157,7 @@ def render_pdf(snapshot: dict, dates: list[str], output: BytesIO, generated_at: 
     story.append(Paragraph("예산", heading))
     budget = snapshot.get("budget", {})
     story.append(Paragraph(
-        f"확인된 비용 {money(budget.get('knownTotalKrw'))} · 미확인 {budget.get('unknownItemCount', 0)}건"
+        (f"예상 총비용 {money(budget.get('estimatedTotalKrw'))}" if budget.get("estimatedTotalKrw") is not None else f"확인된 비용 {money(budget.get('knownTotalKrw'))}") + f" · 미확인 {budget.get('unknownItemCount', 0)}건"
         + (f" · 입력 예산 {money(budget.get('limitKrw'))}" if budget.get("limitKrw") is not None else ""), body))
     if snapshot.get("warnings"):
         story.append(Paragraph("확인할 사항", heading))
@@ -248,7 +248,7 @@ def render_day_png(snapshot: dict, day: dict, day_number: int, output: BytesIO, 
     budget = snapshot.get("budget", {})
     draw.text((margin, y), "예산", font=heading_font, fill="#3F2B68")
     y += 48
-    budget_text = (f"확인된 비용 {money(budget.get('knownTotalKrw'))} · 미확인 {budget.get('unknownItemCount', 0)}건"
+    budget_text = ((f"예상 총비용 {money(budget.get('estimatedTotalKrw'))}" if budget.get("estimatedTotalKrw") is not None else f"확인된 비용 {money(budget.get('knownTotalKrw'))}") + f" · 미확인 {budget.get('unknownItemCount', 0)}건"
                    + (f" · 입력 예산 {money(budget.get('limitKrw'))}" if budget.get("limitKrw") is not None else ""))
     draw.text((margin + 15, y), budget_text, font=small_font, fill="#37474F")
     y += 36

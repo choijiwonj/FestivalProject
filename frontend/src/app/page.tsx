@@ -1,49 +1,143 @@
 "use client";
-
-import { useState } from "react";
-import { useApi } from "@/lib/api";
-import type { Festival } from "@/lib/types";
-import { ErrorBox, FestivalCard, Loading, MoreButton, input } from "./ui";
-
-// S01 홈 + S02 전체 축제 + S15 결과 없음. 홈에는 AI 생성 버튼을 두지 않는다(B01).
+import Link from "next/link";
+import Image from "next/image";
+import { useCallback, useState } from "react";
+import { festivalRepository } from "@/lib/repository";
+import { categories, regions, type Interest } from "@/lib/types";
+import { useResource } from "@/lib/use-resource";
+import {
+  SectionHeading,
+  FestivalRow,
+  Loading,
+  ErrorState,
+  EmptyState,
+  formatDates,
+} from "@/components/ui";
+import { FestivalSearch } from "@/components/festival-search";
 export default function Home() {
-  const [draft, setDraft] = useState("");
-  const [q, setQ] = useState("");
-  const recs = useApi<Festival[]>("/festivals/recommendations?limit=3");
-  const list = useApi<Festival[]>(`/festivals?limit=20${q ? `&q=${encodeURIComponent(q)}` : ""}`);
-
+  const [interest, setInterest] = useState<Interest | null>(null);
+  const recommendations = useResource(
+    useCallback(
+      (signal: AbortSignal) => festivalRepository.recommendations({}, signal),
+      [],
+    ),
+  );
+  const all = useResource(
+    useCallback(
+      (signal: AbortSignal) =>
+        festivalRepository.list(
+          { interests: interest ? [interest] : [] },
+          signal,
+        ),
+      [interest],
+    ),
+  );
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold">축제잇길</h1>
-
-      <section aria-labelledby="recs" className="space-y-2">
-        <h2 id="recs" className="font-semibold">추천 축제</h2>
-        {recs.loading && <Loading />}
-        {/* 추천이 실패하거나 비어도 전체 목록은 그대로 쓸 수 있다 */}
-        {recs.data?.length === 0 && <p className="text-sm opacity-60">지금 추천할 축제가 없어요.</p>}
-        {recs.data?.map((f) => <FestivalCard key={f.id} f={f} />)}
+    <>
+      <section className="hero" aria-labelledby="hero-title">
+        <p className="eyebrow">작은 동네로 떠나는 주말</p>
+        <h1 id="hero-title">
+          들길 지나 골목으로,
+          <br />
+          마음이 쉬는 여행.
+        </h1>
+        <p className="hero-description">
+          축제도 보고, 장터도 들르고.
+          <br />
+          충남의 느긋한 하루를 만나세요.
+        </p>
+        <Image
+          src="/assets/village-hero.svg"
+          width={302}
+          height={94}
+          alt=""
+          className="hero-art"
+          priority
+        />
       </section>
-
-      <section aria-labelledby="all" className="space-y-2">
-        <h2 id="all" className="font-semibold">전체 축제</h2>
-        <form
-          role="search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setQ(draft.trim());
-          }}
-          className="flex gap-2"
-        >
-          <label htmlFor="q" className="sr-only">축제명 또는 지역</label>
-          <input id="q" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="축제명 또는 지역" className={input} />
-          <button className="shrink-0 rounded-lg border border-black/20 px-3">검색</button>
-        </form>
-        {list.loading && <Loading />}
-        {list.error && <ErrorBox error={list.error} onRetry={list.retry} />}
-        {list.data?.length === 0 && <p className="py-4 text-center text-sm opacity-60">검색 결과가 없어요. 검색어를 바꿔 보세요.</p>}
-        {list.data?.map((f) => <FestivalCard key={f.id} f={f} />)}
-        <MoreButton onMore={list.more} />
+      <FestivalSearch />
+      <section className="section">
+        <SectionHeading title="이번엔 이 동네 어때요?" label="추천 축제" />
+        {recommendations.loading ? (
+          <Loading />
+        ) : recommendations.error ? (
+          <ErrorState
+            message={recommendations.error.message}
+            retry={recommendations.retry}
+          />
+        ) : !recommendations.data?.data.length ? (
+          <EmptyState />
+        ) : (
+          <div className="recommendation-grid">
+            {recommendations.data.data.map((f, i) => (
+              <Link
+                href={`/festivals/${f.id}`}
+                className="recommendation-card"
+                key={f.id}
+              >
+                <div className={`card-art ${i % 2 ? "rose" : ""}`}>
+                  {f.thumbnailUrl ? (
+                    <Image
+                      src={f.thumbnailUrl}
+                      width={141}
+                      height={66}
+                      alt=""
+                      unoptimized
+                    />
+                  ) : (
+                    <Image
+                      src="/assets/village-card.svg"
+                      width={141}
+                      height={66}
+                      alt=""
+                    />
+                  )}
+                </div>
+                <h3>{f.name}</h3>
+                <p>
+                  {regions[f.region]} · {formatDates(f.startDate, f.endDate)}
+                </p>
+                <p>{f.recommendationReason}</p>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
-    </div>
+      <section className="section">
+        <SectionHeading
+          title="충남 곳곳의 축제"
+          href="/festivals"
+          label="전체 목록"
+        />
+        <div className="chips" aria-label="축제 관심사">
+          {categories.map((c) => (
+            <button
+              key={c.label}
+              aria-pressed={(interest ?? "") === c.value}
+              onClick={() => setInterest(c.value || null)}
+              className="chip"
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+        {all.loading ? (
+          <Loading />
+        ) : all.error ? (
+          <ErrorState message={all.error.message} retry={all.retry} />
+        ) : !all.data?.data.length ? (
+          <EmptyState />
+        ) : (
+          <div className="space-y-3">
+            {all.data.data.slice(0, 3).map((f) => (
+              <FestivalRow key={f.id} festival={f} />
+            ))}
+          </div>
+        )}
+        <Link href="/festivals" className="text-link mt-3">
+          전체 축제 찾아보기 <span aria-hidden="true">↗</span>
+        </Link>
+      </section>
+    </>
   );
 }

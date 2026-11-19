@@ -56,6 +56,13 @@ class Session(Base):
     user: Mapped[User] = relationship(lazy="joined")
 
 
+class LocalCredential(Base):
+    __tablename__ = "local_credentials"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
 class UserSettings(Base):
     __tablename__ = "user_settings"
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
@@ -194,6 +201,20 @@ class PlanExport(Base):
     updated_at: Mapped[datetime]
 
 
+class BoardPost(Base):
+    __tablename__ = "board_posts"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    festival_id: Mapped[str | None] = mapped_column(ForeignKey("festivals.id"))
+    festival_name: Mapped[str] = mapped_column(String(200))
+    region: Mapped[str] = mapped_column(String(20))
+    author_name: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    visited_on: Mapped[date]
+    is_sample: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime]
+
+
 class Upload(Base):
     __tablename__ = "uploads"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
@@ -211,10 +232,13 @@ class Post(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     festival_id: Mapped[str] = mapped_column(ForeignKey("festivals.id"))
     body: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(String(200))
+    visited_on: Mapped[date | None]
     cover_upload_id: Mapped[str | None] = mapped_column(ForeignKey("uploads.id"))
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
     user: Mapped[User] = relationship(lazy="joined")
+    festival: Mapped[Festival] = relationship(lazy="joined")
 
 
 class RateLimit(Base):

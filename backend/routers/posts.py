@@ -1,11 +1,14 @@
-"""축제 후기 게시판."""
+"""축제 후기 게시판. 기존 공개 후기와 회원 작성 후기를 한 API에서 제공한다."""
+from datetime import date
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DB
 
-from core import ApiError, field, iso, new_id, now, ok, paginate, require_user
-from db import Festival, Post, User, get_db
+from core import ApiError, aware, field, iso, new_id, now, ok, paginate, require_user
+from db import BoardPost, Festival, Post, User, get_db
+from routers.board import post_out as legacy_post_out
+from routers.catalog import Region
 from routers.uploads import owned_upload, upload_url
 
 router = APIRouter()
@@ -16,12 +19,25 @@ class PostInput(BaseModel):
     festivalId: str
     body: str
     coverUploadId: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    visitedOn: date | None = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value):
+        if value is not None and not value.strip():
+            raise ValueError("제목을 입력해 주세요.")
+        return value.strip() if value else value
 
 
 class PostPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     body: str | None = None
     coverUploadId: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    visitedOn: date | None = None
+
+    _validate_title = field_validator("title")(PostInput.validate_title.__func__)
 
 
 def clean_body(body: str | None) -> str:
@@ -34,7 +50,11 @@ def clean_body(body: str | None) -> str:
 def post_out(p: Post) -> dict:
     return {"id": p.id, "festivalId": p.festival_id, "body": p.body, "coverUrl": upload_url(p.cover_upload_id),
             "author": {"id": p.user.id, "nickname": p.user.nickname, "avatarUrl": p.user.avatar_url},
-            "createdAt": iso(p.created_at), "updatedAt": iso(p.updated_at)}
+            "createdAt": iso(p.created_at), "updatedAt": iso(p.updated_at),
+            "title": p.title or p.body.splitlines()[0][:80], "region": p.festival.region,
+            "festivalName": p.festival.name, "excerpt": p.body[:130], "visitedOn": p.visited_on,
+            "images": [upload_url(p.cover_upload_id)] if p.cover_upload_id else [], "placeIds": [],
+            "likeCount": 0, "commentCount": 0, "likedByMe": False, "version": 1, "isSample": False}
 
 
 def own_post(db: DB, user: User, post_id: str) -> Post:
@@ -50,18 +70,30 @@ def newest(stmt):
 
 @router.get("/posts")
 def list_posts(festivalId: str | None = None, cursor: str | None = None, limit: int = Query(20, ge=1, le=50),
-               db: DB = Depends(get_db)):
+               region: Region | None = None, db: DB = Depends(get_db)):
     stmt = select(Post)
     if festivalId:
         stmt = stmt.where(Post.festival_id == festivalId)
-    chunk, page = paginate(list(db.scalars(newest(stmt))), cursor, limit)
-    return ok([post_out(p) for p in chunk], page=page)
+    legacy = select(BoardPost)
+    if festivalId:
+        legacy = legacy.where(BoardPost.festival_id == festivalId)
+    if region:
+        stmt = stmt.join(Festival).where(Festival.region == region)
+        legacy = legacy.where(BoardPost.region == region)
+    records = [(p.created_at, p.id, post_out(p)) for p in db.scalars(stmt)]
+    records += [(p.created_at, p.id, legacy_post_out(p)) for p in db.scalars(legacy)]
+    records.sort(key=lambda row: (aware(row[0]), row[1]), reverse=True)
+    chunk, page = paginate(records, cursor, limit)
+    return ok([row[2] for row in chunk], page=page)
 
 
 @router.get("/posts/{post_id}")
 def get_post(post_id: str, db: DB = Depends(get_db)):
     p = db.get(Post, post_id)
     if not p:
+        legacy = db.get(BoardPost, post_id)
+        if legacy:
+            return ok(legacy_post_out(legacy, detail=True))
         raise ApiError(404, "POST_NOT_FOUND", "후기를 찾을 수 없습니다.")
     return ok(post_out(p))
 
@@ -75,6 +107,7 @@ def create_post(body: PostInput, user: User = Depends(require_user), db: DB = De
     if body.coverUploadId is not None:
         owned_upload(db, user, body.coverUploadId, "coverUploadId")
     p = Post(id=new_id("pst"), user_id=user.id, festival_id=body.festivalId, body=text,
+             title=body.title, visited_on=body.visitedOn,
              cover_upload_id=body.coverUploadId,
              created_at=now(), updated_at=now())
     db.add(p)
@@ -90,6 +123,10 @@ def patch_post(post_id: str, body: PostPatch, user: User = Depends(require_user)
         raise ApiError(422, "EMPTY_UPDATE", "변경할 값이 없습니다.")
     if "body" in sent:
         p.body = clean_body(body.body)
+    if "title" in sent:
+        p.title = body.title
+    if "visitedOn" in sent:
+        p.visited_on = body.visitedOn
     if "coverUploadId" in sent:
         if body.coverUploadId is not None:
             owned_upload(db, user, body.coverUploadId, "coverUploadId")

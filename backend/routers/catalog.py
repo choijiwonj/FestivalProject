@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session as DB
 
 from core import KAKAO_REST_API_KEY, KST, ApiError, distance_m, field, iso, ok, paginate, require_user, sign_location
 from db import Festival, Place, Program, User, get_db
+from festival_content import detail_extras
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def festival_summary(f: Festival) -> dict:
 
 
 def festival_detail(f: Festival) -> dict:
-    return {**festival_summary(f), "description": f.description, "venue": f.venue, "openingHours": f.opening_hours,
+    return {**festival_summary(f), **detail_extras(f.id), "description": f.description, "venue": f.venue, "openingHours": f.opening_hours,
             "admission": f.admission, "booths": f.booths, "lineup": f.lineup, "shuttle": f.shuttle,
             "directions": f.directions, "sourceUrl": f.source_url, "lastVerifiedAt": iso(f.last_verified_at),
             "dateSelection": {"min": f.start_date - timedelta(days=WINDOW_DAYS),

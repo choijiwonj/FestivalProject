@@ -709,3 +709,207 @@ def test_negative_cursor_is_invalid(client):
     import base64
     r = client.get("/api/v1/me/trip-plans", params={"cursor": base64.urlsafe_b64encode(b"-1").decode()})
     assert r.status_code == 400 and r.json()["error"]["code"] == "INVALID_CURSOR"
+
+
+@pytest.mark.parametrize("missing", ["hours", "duration", "both"])
+def test_draft_itinerary_includes_places_with_missing_source_data(client, monkeypatch, missing):
+    mock_schedule_drives(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(httpx, "post", lambda *a, **kw: gemini_response([], [
+        {"placeId": pid, "code": "INSUFFICIENT_DATA", "reason": "방문 정보 확인 필요"}
+        for pid in ["pl_demo_01", "pl_demo_02", "pl_demo_03"]
+    ]))
+    ids = ["pl_demo_01", "pl_demo_02", "pl_demo_03"]
+    with SessionLocal() as db:
+        rows = [db.get(Place, pid) for pid in ids]
+        original = [(p.opening_hours, p.stay_minutes_estimate) for p in rows]
+        for p in rows:
+            if missing in ("hours", "both"):
+                p.opening_hours = None
+            if missing in ("duration", "both"):
+                p.stay_minutes_estimate = None
+        db.commit()
+        try:
+            plan = generated_plan(client, requiredPlaceIds=ids)
+            stops = [s for d in plan["days"] for s in d["stops"] if s["type"] == "PLACE"]
+            assert {s["placeId"] for s in stops} == set(ids)
+            assert all(s["startAt"] and s["endAt"] and s["scheduleAssumptions"] for s in stops)
+            assert not plan["conflicts"]
+            assert plan["status"] == "NEEDS_REVIEW"
+            assert any(w["code"] == "SCHEDULE_ASSUMPTION" for w in plan["warnings"])
+            for day in plan["days"]:
+                timed = [s for s in day["stops"] if s["startAt"] and s["endAt"]]
+                assert all(a["endAt"] <= b["startAt"] for a, b in zip(timed, timed[1:]))
+                for stop in [s for s in timed if s["type"] == "PLACE"]:
+                    incoming = next(leg for leg in day["legs"] if leg["toStopId"] == stop["id"])
+                    assert incoming["arrivalAt"] == stop["startAt"]
+                    assert any(leg["fromStopId"] == stop["id"] for leg in day["legs"])
+            for row in rows:
+                db.refresh(row)
+                if missing in ("hours", "both"):
+                    assert row.opening_hours is None
+                if missing in ("duration", "both"):
+                    assert row.stay_minutes_estimate is None
+        finally:
+            for row, (hours, duration) in zip(rows, original):
+                row.opening_hours, row.stay_minutes_estimate = hours, duration
+            db.commit()
+
+
+def test_draft_itinerary_respects_known_closed_day(client, monkeypatch):
+    mock_schedule_drives(monkeypatch)
+    with SessionLocal() as db:
+        place = db.get(Place, "pl_demo_02")
+        original = (place.opening_hours, place.stay_minutes_estimate, place.closed_dates)
+        place.opening_hours, place.stay_minutes_estimate = None, None
+        place.closed_dates = [START.isoformat()]
+        db.commit()
+        try:
+            plan = generated_plan(client, endDate=START.isoformat(), requiredPlaceIds=[place.id])
+            stop = next(s for s in plan["days"][0]["stops"] if s["placeId"] == place.id)
+            assert stop["startAt"] is None
+            assert plan["status"] == "INFEASIBLE"
+        finally:
+            place.opening_hours, place.stay_minutes_estimate, place.closed_dates = original
+            db.commit()
+
+
+def test_map_filters_out_food_cafes_and_lodging(client):
+    response = client.get("/api/v1/places", params=[
+        ("bbox", "126.2,36.6,126.4,36.9"), ("categories", "ATTRACTION"),
+        ("categories", "EXPERIENCE"), ("limit", "50"),
+    ])
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    assert rows and all(row["category"] in ("ATTRACTION", "EXPERIENCE") for row in rows)
+    assert "pl_demo_03" in {row["id"] for row in rows}
+
+
+def test_board_samples_are_explicit_idempotent_and_public(client):
+    from seed_board_samples import seed_samples
+    from db import BoardPost
+    from sqlalchemy import select
+    with SessionLocal() as db:
+        assert seed_samples(db) == 4
+        assert seed_samples(db) == 0
+        assert len(list(db.scalars(select(BoardPost)))) == 4
+    public = TestClient(app, base_url="https://testserver")
+    response = public.get("/api/v1/posts?limit=2")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]) == 2 and body["page"]["hasNext"]
+    assert all(row["isSample"] and row["likeCount"] == 0 for row in body["data"])
+    page2 = public.get("/api/v1/posts", params={"cursor": body["page"]["nextCursor"], "limit": 2}).json()
+    assert len(page2["data"]) == 2 and not page2["page"]["hasNext"]
+    assert not {row["id"] for row in body["data"]} & {row["id"] for row in page2["data"]}
+    filtered = public.get("/api/v1/posts?region=TAEAN").json()["data"]
+    assert len(filtered) == 1 and filtered[0]["region"] == "TAEAN"
+    detail = public.get(f"/api/v1/posts/{filtered[0]['id']}").json()["data"]
+    assert detail["isSample"] and detail["body"].strip()
+    assert public.get("/api/v1/posts/missing").status_code == 404
+    assert public.get("/api/v1/posts?region=WRONG").status_code == 400
+    assert public.get("/api/v1/posts?cursor=bad").status_code == 400
+    assert public.get("/api/v1/posts?region=ASAN").json()["data"] == []
+
+
+@pytest.mark.parametrize("overnight", [False, True])
+def test_simulation_catalog_generates_timed_plan_and_estimated_budget(client, monkeypatch, overnight):
+    monkeypatch.setenv("SIMULATION_DATA", "1")
+    mock_schedule_drives(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(httpx, "post", lambda *a, **kw: gemini_response([
+        {"placeId": "pl_demo_01", "priority": 1, "reason": "쉬어가기 좋은 카페"}
+    ], [{"placeId": "pl_demo_02", "code": "INSUFFICIENT_DATA", "reason": "필수 방문지"}]))
+    with SessionLocal() as db:
+        row = db.get(Place, "pl_demo_02")
+        original = (row.opening_hours, row.stay_minutes_estimate, row.price)
+        row.opening_hours = row.stay_minutes_estimate = row.price = None
+        db.commit()
+        try:
+            end = START + timedelta(days=int(overnight))
+            plan = generated_plan(client, endDate=end.isoformat(), requiredPlaceIds=[row.id],
+                                  travelers=3, budgetKrw=500000)
+            stops = [stop for day in plan["days"] for stop in day["stops"] if stop["type"] == "PLACE"]
+            assert stops and all(stop["startAt"] and stop["endAt"] for stop in stops)
+            assert all(stop["costKrw"] is not None for stop in stops)
+            assert all(stop["costStatus"] in ("VERIFIED", "ESTIMATED") for stop in stops)
+            budget = plan["budget"]
+            assert budget["estimatedTotalKrw"] > 0 and budget["unknownItemCount"] == 0
+            assert budget["dataMode"] == "SIMULATION"
+            assert "dataMode" not in plan["inputSnapshot"]
+            assert budget["estimatedTotalKrw"] == sum(item["amountKrw"] for item in budget["items"])
+            restaurant = next(item for item in budget["items"] if item["label"] == row.name)
+            assert restaurant["amountKrw"] == 15000 * 3
+            meals = sum(item["amountKrw"] for item in budget["items"] if item["category"] == "FOOD")
+            assert meals == (len(plan["days"]) * 2 - 1) * 12000 * 3
+            hotels = [item for item in budget["items"] if item["category"] == "LODGING"]
+            assert len(hotels) == int(overnight)
+            if overnight:
+                assert hotels[0]["quantity"] == 2
+            assert not plan["conflicts"]
+            assert not any(w["code"] in ("COST_UNKNOWN", "PLACE_SCHEDULE_UNCONFIRMED", "SCHEDULE_ASSUMPTION") for w in plan["warnings"])
+            db.refresh(row)
+            assert row.opening_hours is None and row.price is None and row.stay_minutes_estimate is None
+            # A saved simulation plan remains a valid regeneration input.
+            response = client.post(f"/api/v1/trip-plans/{plan['id']}/regenerations",
+                                   json={**plan["inputSnapshot"], "baseVersion": plan["version"]},
+                                   headers={"Idempotency-Key": str(uuid.uuid4())})
+            assert response.status_code == 202, response.text
+        finally:
+            row.opening_hours, row.stay_minutes_estimate, row.price = original
+            db.commit()
+
+
+def test_simulation_overlay_is_opt_in_and_keeps_real_closed_dates(monkeypatch):
+    from simulation_data import place_for_plan
+    row = Place(id="simulation_test", name="청포대해수욕장", category="ATTRACTION", lat=36.7, lng=126.3,
+                address="충남", closed_dates=[START.isoformat()])
+    monkeypatch.setenv("SIMULATION_DATA", "0")
+    assert place_for_plan(row) is row
+    monkeypatch.setenv("SIMULATION_DATA", "1")
+    overlay = place_for_plan(row)
+    assert overlay.price["amountKrw"] == 0 and overlay.price["status"] == "ESTIMATED"
+    assert overlay.closed_dates == row.closed_dates
+    assert row.opening_hours is None and row.price is None
+    hotel = Place(id="simulation_hotel", name="청포대하와이펜션", category="LODGING", lat=36.7, lng=126.3,
+                  address="충남", closed_dates=[])
+    assert place_for_plan(hotel).price["amountKrw"] == 80000
+
+
+def test_simulation_budget_flags_over_budget_and_excludes_self_arranged_lodging(monkeypatch):
+    from budgeting import calculate_budget
+    monkeypatch.setenv("SIMULATION_DATA", "1")
+    budget = calculate_budget({"travelers": 2, "transport": "CAR", "budgetKrw": 0,
+                               "lodgingPreference": "SELF_ARRANGED"},
+                              [{"date": "2026-01-01", "stops": [], "legs": []},
+                               {"date": "2026-01-02", "stops": [], "legs": []}])
+    assert budget["status"] == "OVER" and budget["unknownItemCount"] == 0
+    assert not any(item["category"] == "LODGING" for item in budget["items"])
+    assert budget["knownTotalKrw"] == 0 < budget["estimatedTotalKrw"]
+
+
+def test_verified_light_festival_hours_are_seasonal():
+    from festival_content import verified_visit_window
+    assert verified_visit_window("fst_cn_113_2026", "2026-01-01") == {"open": "17:30", "close": "22:00"}
+    assert verified_visit_window("fst_cn_113_2026", "2026-07-01") == {"open": "19:30", "close": "23:00"}
+    assert verified_visit_window("fst_cn_182_2026", "2026-12-24") is None
+
+
+def test_evening_festival_keeps_daytime_places_before_lights(client, monkeypatch):
+    from scheduling import schedule_car_trip
+    from routing import CarRoute
+    days = [{"date": START.isoformat(), "stops": [
+        {"id": "light", "type": "FESTIVAL", "name": "야간 축제", "visitDurationMinutes": 120,
+         "visitWindow": {"open": "17:30", "close": "22:00"}, "scheduleSource": "VERIFIED"},
+        {"id": "cafe", "type": "PLACE", "placeId": "pl_demo_01", "name": "카페", "required": True},
+    ], "legs": []}]
+    with SessionLocal() as db:
+        warnings, conflicts = [], []
+        assert schedule_car_trip(days, {"pl_demo_01": db.get(Place, "pl_demo_01")},
+                                 (36.7, 126.3), (36.75, 126.3), "test", warnings, conflicts,
+                                 route_loader=lambda *args: CarRoute(600, 4000))
+    stops = days[0]["stops"]
+    assert [stop["id"] for stop in stops] == ["cafe", "light"]
+    assert stops[1]["startAt"][11:16] == "17:30"
+    assert stops[0]["endAt"] < stops[1]["startAt"]
+    assert not conflicts
