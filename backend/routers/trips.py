@@ -5,16 +5,21 @@ from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
-from pydantic import Field
-from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DB
 
 from core import ApiError, aware, defer, iso, new_id, now, ok, paginate, require_user
-from db import Festival, Job, TripPlan, TripRequest, User, get_db
+from db import Festival, Job, PlanExport, TripPlan, TripRequest, User, get_db
 from planner import TripRequestInput, run_generation, validate_trip
 
 router = APIRouter()
+
+
+class PlanPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    isFavorite: bool = Field(strict=True)
 
 
 class RegenerationInput(TripRequestInput):
@@ -148,6 +153,33 @@ def get_plan(plan_id: str, user: User = Depends(require_user), db: DB = Depends(
     if not p or p.user_id != user.id:
         raise ApiError(404, "PLAN_NOT_FOUND", "여행 계획을 찾을 수 없습니다.")
     return ok(plan_out(p))
+
+
+def own_plan(db: DB, user: User, plan_id: str) -> TripPlan:
+    p = db.get(TripPlan, plan_id)
+    if not p or p.user_id != user.id:
+        raise ApiError(404, "PLAN_NOT_FOUND", "여행 계획을 찾을 수 없습니다.")
+    return p
+
+
+@router.patch("/trip-plans/{plan_id}")
+def patch_plan(plan_id: str, body: PlanPatch, user: User = Depends(require_user), db: DB = Depends(get_db)):
+    p = own_plan(db, user, plan_id)
+    p.is_favorite = body.isFavorite
+    db.commit()
+    return ok(plan_out(p))
+
+
+@router.delete("/trip-plans/{plan_id}", status_code=204)
+def delete_plan(plan_id: str, user: User = Depends(require_user), db: DB = Depends(get_db)):
+    p = own_plan(db, user, plan_id)
+    # 내보내기 파일과 그 작업도 함께 지운다. 생성 요청·작업 기록은 남긴다.
+    # 재생성으로 만든 자식 계획은 parent_plan_id(FK 아닌 문자열)만 가리키므로 그대로 둔다.
+    job_ids = list(db.scalars(select(PlanExport.job_id).where(PlanExport.plan_id == p.id)))
+    db.execute(delete(PlanExport).where(PlanExport.plan_id == p.id))
+    db.execute(delete(Job).where(Job.id.in_(job_ids)))
+    db.delete(p)
+    db.commit()
 
 
 @router.get("/me/trip-plans")
