@@ -18,6 +18,7 @@ import {
   tripDateError,
   tripError,
   tripPayload,
+  tripMinDate,
   pickableProgram,
   interestLabels,
   lodgingLabels,
@@ -220,6 +221,7 @@ function TripWizard({ festival }: { festival: FestivalDetail }) {
     }
   }
   const overnight = form.startDate !== form.endDate;
+  const minDate = tripMinDate(festival);
   return (
     <>
       <p className="eyebrow mb-2">선택한 축제 · {festival.name}</p>
@@ -282,7 +284,7 @@ function TripWizard({ festival }: { festival: FestivalDetail }) {
                 <input
                   type="date"
                   required
-                  min={festival.dateSelection.min}
+                  min={minDate}
                   max={festival.dateSelection.max}
                   value={form.startDate}
                   onInput={(e) =>
@@ -310,7 +312,7 @@ function TripWizard({ festival }: { festival: FestivalDetail }) {
                 <input
                   type="date"
                   required
-                  min={form.startDate || festival.dateSelection.min}
+                  min={form.startDate || minDate}
                   max={festival.dateSelection.max}
                   value={form.endDate}
                   onInput={(e) => update({ endDate: e.currentTarget.value })}

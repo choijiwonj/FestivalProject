@@ -34,7 +34,7 @@ def festival_detail(f: Festival) -> dict:
     return {**festival_summary(f), **detail_extras(f.id), "description": f.description, "venue": f.venue, "openingHours": f.opening_hours,
             "admission": f.admission, "booths": f.booths, "lineup": f.lineup, "shuttle": f.shuttle,
             "directions": f.directions, "sourceUrl": f.source_url, "lastVerifiedAt": iso(f.last_verified_at),
-            "dateSelection": {"min": f.start_date - timedelta(days=WINDOW_DAYS),
+            "dateSelection": {"min": max(f.start_date - timedelta(days=WINDOW_DAYS), today_kst()),
                               "max": f.end_date + timedelta(days=WINDOW_DAYS)}}
 
 
@@ -113,11 +113,19 @@ def recommendations(from_: date | None = Query(None, alias="from"), to: date | N
             return "EDITORIAL"
         return "INTEREST" if set(f.tags) & set(interests) else "SEASONAL"
 
+    today = today_kst()
+
     order = {"EDITORIAL": 0, "INTEREST": 1, "SEASONAL": 2}
     rows.sort(key=lambda f: (order[kind(f)], f.start_date, f.id))
     reasons = {"EDITORIAL": "운영팀이 추천하는 축제입니다.", "INTEREST": "선택한 관심사와 맞는 축제입니다.",
                "SEASONAL": "곧 열리는 축제입니다."}
-    data = [{**festival_summary(f), "recommendationReason": reasons[kind(f)], "recommendationType": kind(f)}
+
+    def reason(f: Festival) -> str:
+        if kind(f) == "SEASONAL" and f.start_date <= today:
+            return "지금 열리고 있는 축제입니다."
+        return reasons[kind(f)]
+
+    data = [{**festival_summary(f), "recommendationReason": reason(f), "recommendationType": kind(f)}
             for f in rows[:limit]]
     return ok(data, generatedAt=iso(datetime.now(KST)))
 

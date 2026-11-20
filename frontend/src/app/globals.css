@@ -274,6 +274,10 @@ main:focus {
   font-weight: 700;
   color: #885464;
 }
+/* 레이어 밖 .text-link가 Tailwind .block을 이겨서 링크가 한 줄에 붙는 문제 */
+.text-link.block {
+  display: flex;
+}
 .bottom-nav {
   position: fixed;
   bottom: 0;

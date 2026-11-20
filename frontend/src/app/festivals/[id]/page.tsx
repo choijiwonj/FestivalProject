@@ -6,5 +6,5 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <FestivalDetailView id={id} />;
+  return <FestivalDetailView id={decodeURIComponent(id)} />;
 }
