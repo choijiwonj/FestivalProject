@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session as DB
 from core import ApiError, distance_m, field, iso, new_id, now, verify_location
 from db import Festival, Job, Place, Program, SessionLocal, TripPlan, TripRequest
 from recommendations import DEFAULT_MODEL, MAX_CANDIDATES, RecommendationResult, recommend_places
-from routers.catalog import WINDOW_DAYS, Interest
+from routers.catalog import WINDOW_DAYS, Interest, today_kst
 from routing import get_car_route
 from scheduling import opening_windows, schedule_car_trip
 from transit import TransitRouteSession
@@ -53,6 +53,7 @@ class TripRequestInput(BaseModel):
 
 DATE_MESSAGES = {
     "DATE_RANGE_INVALID": ("endDate", "종료일은 시작일과 같거나 늦어야 합니다."),
+    "DATE_IN_PAST": ("startDate", "오늘 이후 날짜로 골라 주세요."),
     "DATE_OUT_OF_FESTIVAL_WINDOW": ("startDate", "축제 기간 전후 2일 안에서 날짜를 골라 주세요."),
     "DATE_NO_FESTIVAL_OVERLAP": ("startDate", "여행에 축제 개최일을 하루 이상 포함해 주세요."),
     "TRIP_DURATION_EXCEEDED": ("endDate", f"여행 기간은 최대 {MAX_TRIP_DAYS}일입니다."),
@@ -86,7 +87,10 @@ def validate_trip(db: DB, inp: TripRequestInput) -> dict:
         reject("FESTIVAL_NOT_FOUND", "축제를 찾을 수 없습니다.", "primaryFestivalId", "not_found")
     if fest.status == "CANCELLED":
         reject("FESTIVAL_UNAVAILABLE", "취소된 축제입니다. 축제 정보를 확인해 주세요.", "primaryFestivalId", "cancelled")
-    if code := check_dates(inp.startDate, inp.endDate, fest.start_date, fest.end_date):
+    code = check_dates(inp.startDate, inp.endDate, fest.start_date, fest.end_date)
+    if not code and inp.startDate < today_kst():
+        code = "DATE_IN_PAST"
+    if code:
         path, msg = DATE_MESSAGES[code]
         reject(code, msg, path, code.lower())
 

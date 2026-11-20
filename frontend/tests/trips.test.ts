@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   initialTrip,
+  seoulToday,
+  tripMinDate,
   tripDateError,
   tripError,
   tripPayload,
@@ -28,7 +30,7 @@ const origin = {
   lng: 127.1,
 };
 test("여행은 당일·1박 2일이고 축제 개최일을 포함해야 한다", () => {
-  const f = initialTrip(festival);
+  const f = initialTrip(festival, "2026-11-01");
   assert.equal(tripDateError(f, festival), null);
   assert.equal(tripDateError({ ...f, endDate: "2026-11-20" }, festival), null);
   for (const patch of [
@@ -41,7 +43,7 @@ test("여행은 당일·1박 2일이고 축제 개최일을 포함해야 한다"
     assert.ok(tripDateError({ ...f, ...patch }, festival));
 });
 test("검색 결과 출발지와 인원·예산·요청 길이를 검증한다", () => {
-  const f = { ...initialTrip(festival), origin };
+  const f = { ...initialTrip(festival, "2026-11-01"), origin };
   assert.equal(tripError(f, festival), null);
   for (const patch of [
     { origin: null },
@@ -57,7 +59,7 @@ test("검색 결과 출발지와 인원·예산·요청 길이를 검증한다",
   assert.ok(tripError(f, { ...festival, status: "CANCELLED" }));
 });
 test("당일 숙박은 제거하고 예산 0원과 미입력을 구분한다", () => {
-  const f = { ...initialTrip(festival), origin };
+  const f = { ...initialTrip(festival, "2026-11-01"), origin };
   assert.equal(tripPayload(f).budgetKrw, null);
   assert.equal(tripPayload({ ...f, budgetKrw: "0" }).budgetKrw, 0);
   assert.equal(tripPayload(f).lodgingPreference, null);
@@ -72,22 +74,22 @@ test("필수 프로그램은 한국시간 날짜와 확정 시각으로 선택�
     startAt: "2026-11-18T15:00:00Z",
     endAt: "2026-11-18T16:00:00Z",
   } as Program;
-  assert.equal(pickableProgram(p, initialTrip(festival)), true);
+  assert.equal(pickableProgram(p, initialTrip(festival, "2026-11-01")), true);
   assert.equal(
-    pickableProgram({ ...p, endAt: null }, initialTrip(festival)),
+    pickableProgram({ ...p, endAt: null }, initialTrip(festival, "2026-11-01")),
     false,
   );
   assert.equal(
     pickableProgram(
       { ...p, startAt: "2026-11-17T15:00:00Z" },
-      initialTrip(festival),
+      initialTrip(festival, "2026-11-01"),
     ),
     false,
   );
 });
 test("생성 API는 CSRF·동일한 중복 방지 키와 정규화된 조건을 전달한다", async () => {
   const original = globalThis.fetch;
-  const body = tripPayload({ ...initialTrip(festival), origin });
+  const body = tripPayload({ ...initialTrip(festival, "2026-11-01"), origin });
   let calls = 0;
   globalThis.fetch = async (url, options) => {
     calls++;
@@ -128,7 +130,7 @@ test("생성 API는 CSRF·동일한 중복 방지 키와 정규화된 조건을 
 });
 test("재추천은 원래 버전과 입력 스냅샷을 포함한다", async () => {
   const original = globalThis.fetch;
-  const input = tripPayload({ ...initialTrip(festival), origin });
+  const input = tripPayload({ ...initialTrip(festival, "2026-11-01"), origin });
   globalThis.fetch = async (url, options) => {
     assert.match(String(url), /\/trip-plans\/plan%2Fid\/regenerations$/);
     assert.deepEqual(JSON.parse(String(options?.body)), {
@@ -173,4 +175,14 @@ test("AI 미연결·대체 추천 안내를 AI 성공으로 표현하지 않는�
     ]),
     "기본 추천으로 구성된 일정",
   );
+});
+test("여행 시작일 기본값과 최소값은 오늘(한국시간) 이전으로 가지 않는다", () => {
+  assert.equal(seoulToday(new Date("2026-11-19T15:30:00Z")), "2026-11-20");
+  assert.equal(tripMinDate(festival, "2026-11-01"), "2026-11-17");
+  assert.equal(tripMinDate(festival, "2026-11-20"), "2026-11-20");
+  const past = { ...festival, startDate: "2026-01-01", endDate: "2026-12-31", dateSelection: { min: "2025-12-30", max: "2027-01-02" } } as FestivalDetail;
+  const f = initialTrip(past, "2026-11-20");
+  assert.equal(f.startDate, "2026-11-20");
+  assert.equal(f.endDate, "2026-11-20");
+  assert.equal(initialTrip(festival, "2026-11-01").startDate, "2026-11-19");
 });

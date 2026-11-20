@@ -92,6 +92,31 @@ def test_public_and_auth_basics(client):
     assert client.post("/api/v1/trip-requests/validate", json=trip(), headers={"X-CSRF-Token": "x"}).status_code == 403
 
 
+def test_recommendation_reason_distinguishes_ongoing_from_upcoming(client, monkeypatch):
+    import routers.catalog as catalog
+
+    def reason():
+        data = client.get("/api/v1/festivals/recommendations").json()["data"]
+        return next(f for f in data if f["id"] == "fst_demo_02")
+    assert (reason()["recommendationReason"], reason()["recommendationType"]) == ("곧 열리는 축제입니다.", "SEASONAL")
+    monkeypatch.setattr(catalog, "today_kst", lambda: START + timedelta(days=2))  # fst_demo_02 개막일
+    assert (reason()["recommendationReason"], reason()["recommendationType"]) == ("지금 열리고 있는 축제입니다.", "SEASONAL")
+
+
+def test_past_dates_are_not_selectable(client, monkeypatch):
+    import routers.catalog as catalog
+    sel = client.get("/api/v1/festivals/fst_demo_01").json()["data"]["dateSelection"]
+    assert sel["min"] == (START - timedelta(days=2)).isoformat()
+    today = START + timedelta(days=1)
+    monkeypatch.setattr(catalog, "today_kst", lambda: today)
+    monkeypatch.setattr(planner, "today_kst", lambda: today)
+    assert client.get("/api/v1/festivals/fst_demo_01").json()["data"]["dateSelection"]["min"] == today.isoformat()
+    past = client.post("/api/v1/trip-requests/validate", json=trip(startDate=START.isoformat(), endDate=today.isoformat()))
+    err = past.json()["error"]
+    assert past.status_code == 422 and err["code"] == "DATE_IN_PAST" and err["fields"][0]["path"] == "startDate"
+    assert client.post("/api/v1/trip-requests/validate", json=trip(startDate=today.isoformat())).status_code == 200
+
+
 def test_validate_rules(client):
     r = client.post("/api/v1/trip-requests/validate", json=trip(lodgingPreference="HOTEL"))
     assert r.status_code == 200, r.text

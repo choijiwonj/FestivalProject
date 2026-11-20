@@ -139,12 +139,24 @@ export const stageLabels: Record<string, string> = {
   COMPLETED: "생성 완료",
   DONE: "생성 완료",
 };
-export function initialTrip(festival: FestivalDetail): TripForm {
+export function seoulToday(now = new Date()) {
+  return new Date(+now + 9 * 3600000).toISOString().slice(0, 10);
+}
+// 지난 날짜는 고를 수 없게: max(축제 선택 시작일, 오늘·한국시간).
+export function tripMinDate(festival: FestivalDetail, today = seoulToday()) {
+  return festival.dateSelection.min > today ? festival.dateSelection.min : today;
+}
+export function initialTrip(
+  festival: FestivalDetail,
+  today = seoulToday(),
+): TripForm {
+  const min = tripMinDate(festival, today);
+  const start = festival.startDate > min ? festival.startDate : min;
   return {
     primaryFestivalId: festival.id,
     additionalFestivalIds: [],
-    startDate: festival.startDate,
-    endDate: festival.startDate,
+    startDate: start,
+    endDate: start,
     origin: null,
     transport: "CAR",
     travelers: 1,
