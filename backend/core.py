@@ -34,6 +34,8 @@ if DEV_LOGIN and not LOCAL:
     raise RuntimeError("DEV_LOGIN=1은 로컬(SQLite) 전용입니다. 배포 환경에서는 끄세요.")
 if os.getenv("SEED_DEMO") == "1" and not LOCAL:
     raise RuntimeError("SEED_DEMO=1은 로컬(SQLite) 전용입니다. 배포 환경에서는 끄세요.")
+if os.getenv("SIMULATION_DATA") == "1" and not LOCAL:
+    raise RuntimeError("SIMULATION_DATA=1은 로컬(SQLite) 전용입니다. 배포 환경에서는 끄세요.")
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "")
 KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "")
 KAKAO_REDIRECT_URI = os.getenv("KAKAO_REDIRECT_URI", "http://localhost:3000/api/v1/auth/callback/kakao")

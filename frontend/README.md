@@ -5,12 +5,12 @@ Next.js + React + TypeScript + Tailwind CSS 기반 프런트엔드입니다. 화
 ## 실행
 
 ```powershell
-cd "C:\Users\User\Documents\Codex\2026-11-15\docs-api-next-js-react-typescript\outputs\festival-front"
+cd frontend
 npm ci
 npm run dev
 ```
 
-기본 주소는 http://localhost:3000 입니다. 기존 프로젝트가 해당 포트를 사용하면 터미널에 표시되는 다른 Local 주소로 접속하세요. 이 폴더는 Desktop/FestivalProject/frontend와 별개의 프로젝트입니다.
+기본 주소는 http://localhost:3000 입니다. 기존 프로젝트가 해당 포트를 사용하면 터미널에 표시되는 다른 Local 주소로 접속하세요.
 
 ## 백엔드 연결
 
@@ -57,6 +57,7 @@ src/app/                   페이지·디자인 토큰
 ## 확인
 
 ```powershell
+npm run lint
 npm run typecheck
 npm test
 npm run build
@@ -68,6 +69,6 @@ npm run build
 
 로그인은 /auth/session의 실제 세션 쿠키를 사용하고 쓰기 요청에 X-CSRF-Token을 보냅니다. 카카오 로그인은 백엔드의 OAuth 설정이 필요합니다. 로컬 백엔드에서 DEV_LOGIN=1을 켰을 때만 .env.local에 NEXT_PUBLIC_LOGIN_PROVIDER=dev를 설정해 개발용 로그인을 사용할 수 있습니다. 환경변수 변경 후 프런트 서버를 재시작하세요. 운영 환경에서는 kakao를 사용하세요. 프록시와 쿠키를 함께 사용하도록 NEXT_PUBLIC_API_BASE_URL=/api/v1을 권장합니다.
 
-여행 기본 설정의 교통수단·인원·취향·스타일·숙소 선호·출발지 저장 허용을 저장합니다. 기본 출발지 검색/변경과 공지·문의·약관·알림은 준비 중으로 구분합니다. /me/posts가 없는 현재 백엔드에서는 내 후기를 가짜 빈 목록으로 대체하지 않습니다. FastAPI의 경로와 응답 구조는 수정하지 않았습니다.
+여행 기본 설정의 기본 출발지(검색 후 선택, 출발지 저장 허용 필요)·교통수단·인원·취향·스타일·숙소 선호·출발지 저장 허용을 저장합니다. 공지·문의·약관·알림은 준비 중으로 구분합니다. /me/posts가 없는 현재 백엔드에서는 내 후기를 가짜 빈 목록으로 대체하지 않습니다. FastAPI의 경로와 응답 구조는 수정하지 않았습니다.
 
-Vercel Root Directory는 outputs/festival-front, Install Command는 npm ci, Build Command는 npm run build 입니다. API_PROXY_TARGET에 배포된 FastAPI 주소를 설정하세요. 실제 배포는 별도 작업입니다.
+Vercel Root Directory는 frontend, Install Command는 npm ci, Build Command는 npm run build 입니다. API_PROXY_TARGET에 배포된 FastAPI 주소를 설정하세요. 실제 배포는 별도 작업입니다.

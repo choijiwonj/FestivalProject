@@ -4,6 +4,7 @@ import { Download, FileText, Image as ImageIcon, LoaderCircle } from "lucide-rea
 import { exportApi, exportDates, exportFile, exportOutcome, safeExportFilename, type ExportFormat, type ExportRecord } from "@/lib/api/exports";
 import type { TripPlan } from "@/lib/trips";
 import { useAuth } from "./auth-provider";
+import { withTimeout } from "@/lib/api/client";
 
 function delay(milliseconds: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -57,13 +58,13 @@ export function PlanExport({ plan }: { plan: TripPlan }) {
     try {
       if (!current.id) {
         const response = await exportApi.create(plan.id, plan.version, format, selected, session?.csrfToken ?? null, current.key,
-          AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]));
+          withTimeout(controller.signal, 20000));
         if (!response.data.exportId) throw new Error("파일 생성 작업을 확인하지 못했어요. 다시 시도해 주세요.");
         current.id = response.data.exportId;
       }
       const deadline = Date.now() + 90000;
       while (!controller.signal.aborted) {
-        const response = await exportApi.status(current.id, AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]));
+        const response = await exportApi.status(current.id, withTimeout(controller.signal, 20000));
         const item = response.data;
         const outcome = exportOutcome(item);
         if (outcome === "failed") {
@@ -88,7 +89,7 @@ export function PlanExport({ plan }: { plan: TripPlan }) {
     const controller = new AbortController();
     operation.current?.abort(); operation.current = controller;
     try {
-      const blob = await exportFile(record.id, record.contentType, AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]));
+      const blob = await exportFile(record.id, record.contentType, withTimeout(controller.signal, 45000));
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(blob); objectUrls.current.add(url);
       const link = document.createElement("a");
@@ -132,6 +133,7 @@ export function PlanExport({ plan }: { plan: TripPlan }) {
     </fieldset>
     {phase !== "ready" && <button type="button" className="button w-full mt-4" onClick={createOrResume} disabled={busy || blocked || !dates.length}>
       {phase === "working" ? <LoaderCircle size={18} className="export-spinner" aria-hidden="true" /> : <Download size={18} aria-hidden="true" />}
+      {/* eslint-disable-next-line react-hooks/refs -- read after setPhase("error"), which re-renders */}
       {phase === "working" ? "파일 만드는 중…" : phase === "error" ? request.current?.id ? "진행 상태 다시 확인" : "다시 만들기" : "다운로드 파일 만들기"}
     </button>}
     {message && <p className={`mt-3 ${phase === "error" ? "field-error" : "muted"}`} role={phase === "error" ? "alert" : "status"}>{message}</p>}

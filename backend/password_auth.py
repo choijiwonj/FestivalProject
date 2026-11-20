@@ -3,6 +3,7 @@ import base64
 from collections import deque
 import hashlib
 import hmac
+import logging
 import re
 import secrets
 import threading
@@ -12,6 +13,8 @@ from urllib.parse import urlsplit
 from sqlalchemy import select, text
 from core import ApiError, KAKAO_REDIRECT_URI, new_id, now
 from db import LocalCredential, User, UserSettings
+
+log = logging.getLogger(__name__)
 
 # OWASP scrypt configuration: N=2^15, r=8, p=3 (32 MiB).
 N, R, P = 32768, 8, 3
@@ -26,18 +29,22 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored: str) -> bool:
+    if len(password) > 128:
+        return False
     try:
         algorithm, n, r, p, encoded_salt, encoded_key = stored.split("$")
-        if algorithm != "scrypt" or (int(n), int(r), int(p)) != (N, R, P) or len(password) > 128:
-            return False
+        if algorithm != "scrypt" or (int(n), int(r), int(p)) != (N, R, P):
+            raise ValueError
         salt = base64.b64decode(encoded_salt, validate=True)
         expected = base64.b64decode(encoded_key, validate=True)
         if len(salt) != 16 or len(expected) != 32:
-            return False
-        actual = hashlib.scrypt(password.encode(), salt=salt, n=N, r=R, p=P, dklen=32, maxmem=64 * 1024 * 1024)
-        return hmac.compare_digest(actual, expected)
+            raise ValueError
     except (ValueError, TypeError):
+        # 비밀번호 불일치가 아니라 저장된 해시 자체가 깨진 경우. 응답은 동일하게 실패로 둔다.
+        log.error("password hash format invalid")
         return False
+    actual = hashlib.scrypt(password.encode(), salt=salt, n=N, r=R, p=P, dklen=32, maxmem=64 * 1024 * 1024)
+    return hmac.compare_digest(actual, expected)
 
 
 DUMMY_HASH = hash_password(secrets.token_urlsafe(24))
@@ -89,6 +96,7 @@ def check_login_origin(request):
     if configured:
         allowed.add(configured)
     if origin.rstrip("/") not in allowed:
+        log.warning("login origin rejected origin=%s allowed=%s", origin, sorted(allowed))
         raise ApiError(403, "ORIGIN_INVALID", "로그인 화면을 새로고침한 뒤 다시 시도해 주세요.")
 
 

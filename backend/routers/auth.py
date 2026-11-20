@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session as DB
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from core import (COOKIE_SECURE, DEV_LOGIN, KAKAO_CLIENT_SECRET, KAKAO_REDIRECT_URI, KAKAO_REST_API_KEY,
-                  SESSION_COOKIE, SESSION_DAYS, ApiError, check_csrf, create_session, current_session, hash_token, limit_by_ip, new_id, now, ok)
+                  SESSION_COOKIE, SESSION_DAYS, ApiError, check_csrf, client_ip, create_session, current_session, hash_token,
+                  limit_by_ip, new_id, now, ok, rate_limit)
 from db import LocalCredential, Session as LoginSession, User, UserSettings, get_db
 from password_auth import DUMMY_HASH, check_login_origin, login_throttle, normalize_username, verify_password
 
@@ -81,11 +82,13 @@ class LocalLoginInput(BaseModel):
 @router.post("/auth/login", dependencies=[limit_login])
 def password_login(body: LocalLoginInput, request: Request, db: DB = Depends(get_db)):
     check_login_origin(request)
-    login_throttle.check(request.client.host if request.client else "unknown")
+    login_throttle.check(client_ip(request))
     try:
         username = normalize_username(body.username)
     except ValueError:
         username = ""
+    # 아이디별 시도 제한. 없는 아이디도 똑같이 세어 존재 여부가 드러나지 않게 한다.
+    rate_limit(db, f"login-user:{username}", 10, 15 * 60)
     user = db.scalar(select(User).where(User.provider == "local", User.provider_user_id == username))
     credential = db.get(LocalCredential, user.id) if user else None
     matches = verify_password(body.password.get_secret_value(), credential.password_hash if credential else DUMMY_HASH)

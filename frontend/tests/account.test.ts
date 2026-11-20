@@ -83,6 +83,20 @@ test("설정 저장은 CSRF·버전을 보내고 출발지를 임의로 덮어�
       accountApi.saveSettings(value, null),
       (e: unknown) => e instanceof ApiError && e.status === 401,
     );
+    let sent: Record<string, unknown> = {};
+    globalThis.fetch = async (_url, init) => {
+      sent = JSON.parse(String(init?.body)).travelDefaults;
+      return Response.json({ data: value, meta: {} });
+    };
+    const origin = { locationId: "signed", label: "천안아산역", lat: 36.79, lng: 127.1 };
+    await accountApi.saveSettings(
+      { ...value, travelDefaults: { ...value.travelDefaults, origin } },
+      "csrf-test",
+      true,
+    );
+    assert.equal(sent.originLocationId, "signed");
+    await accountApi.saveSettings(value, "csrf-test", true);
+    assert.equal(sent.originLocationId, null);
   } finally {
     globalThis.fetch = original;
   }

@@ -42,7 +42,7 @@ export function RequireAuth({
 }) {
   const { session, loading, error, reload } = useAuth();
   const path = usePathname();
-  if (loading) return <Loading />;
+  if (loading) return <Loading label="로그인 상태를 확인하는 중" />;
   if (error)
     return (
       <ErrorState

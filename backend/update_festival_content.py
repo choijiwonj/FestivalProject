@@ -16,15 +16,18 @@ def update_content():
         for item in items:
             row = db.get(Festival, item["id"])
             if row is None or row.name != item["name"]:
-                raise ValueError("Festival ID/name mismatch; nothing committed")
+                raise ValueError(f"Festival ID/name mismatch: {item['id']}; nothing committed")
             backup.append({"id": row.id, **{field: getattr(row, field) for field in FIELDS}})
-            row.description = item["description"]
-            row.venue = {**(row.venue or {}), "label": item["venueLabel"]}
-            row.opening_hours = item["openingHours"]
-            row.admission = {**item["admission"], "lastVerifiedAt": checked.isoformat() + "Z"}
-            for field in ("directions", "shuttle"):
-                setattr(row, field, {**item[field], "lastVerifiedAt": checked.isoformat() + "Z"})
-            row.source_url = item["sourceUrl"]
+            try:
+                row.description = item["description"]
+                row.venue = {**(row.venue or {}), "label": item["venueLabel"]}
+                row.opening_hours = item["openingHours"]
+                row.admission = {**item["admission"], "lastVerifiedAt": checked.isoformat() + "Z"}
+                for field in ("directions", "shuttle"):
+                    setattr(row, field, {**item[field], "lastVerifiedAt": checked.isoformat() + "Z"})
+                row.source_url = item["sourceUrl"]
+            except KeyError as error:
+                raise ValueError(f"Missing field {error} in {item['id']}; nothing committed") from None
             row.last_verified_at = checked
         backup_dir = root / "content_backups"
         backup_dir.mkdir(exist_ok=True)
@@ -38,5 +41,5 @@ if __name__ == "__main__":
     try:
         print("Updated reviewed festival details:", update_content())
     except Exception as error:
-        print("Content update failed:", type(error).__name__)
+        print("Content update failed:", str(error) if isinstance(error, (ValueError, KeyError)) else type(error).__name__)
         raise SystemExit(1)

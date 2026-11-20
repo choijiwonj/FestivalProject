@@ -15,7 +15,7 @@ backend/   FastAPI · SQLAlchemy (Vercel 프로젝트 2)
   routers/               auth · catalog(축제·장소·위치) · trips · exports · me
 ```
 
-브라우저는 프런트 도메인의 `/api/*`만 호출하고, Next.js rewrites가 백엔드로 넘긴다(`BACKEND_URL`). 쿠키·CSRF·카카오 콜백이 한 도메인에서 처리된다.
+브라우저는 프런트 도메인의 `/api/*`만 호출하고, Next.js rewrites가 백엔드로 넘긴다(`API_PROXY_TARGET`, `BACKEND_URL`도 허용). 쿠키·CSRF·카카오 콜백이 한 도메인에서 처리된다.
 
 ## 환경변수
 
@@ -44,7 +44,7 @@ Vercel 배포 시: `VERCEL=1`이면 생성·내보내기를 요청 안에서 바
 
 | 이름 | 로컬 예 | 설명 |
 |---|---|---|
-| BACKEND_URL | `http://localhost:8000` | rewrites 대상 |
+| API_PROXY_TARGET | `http://localhost:8000` | rewrites 대상 (`BACKEND_URL`도 허용, `API_PROXY_TARGET` 우선) |
 | NEXT_PUBLIC_LOGIN_PROVIDER | `dev` | 배포는 `kakao`(기본값). 빌드 시점에 들어감 |
 
 ## 실행
